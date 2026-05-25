@@ -1,0 +1,240 @@
+.home-canvas {
+  display: flex;
+  width: min(880px, 100%);
+  min-height: calc(100vh - 58px);
+  margin: 0 auto;
+  padding: clamp(138px, 22vh, 190px) 0 34px;
+  flex-direction: column;
+  align-items: center;
+}
+
+.welcome-avatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
+  font-size: 25px;
+  box-shadow: 0 16px 40px rgba(37, 99, 235, 0.18);
+}
+
+.home-canvas h1 {
+  margin: 24px 0 10px;
+  color: #111827;
+  font-size: clamp(30px, 4.5vw, 33px);
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.16;
+  text-align: center;
+}
+
+.home-canvas p {
+  max-width: 620px;
+  margin: 0 0 28px;
+  color: #667085;
+  font-size: 16px;
+  line-height: 1.75;
+  text-align: center;
+}
+
+.composer-wrap {
+  width: min(var(--chat-surface-width), 100%);
+}
+
+.composer-wrap.home,
+.composer-wrap.chat {
+  margin: 0 auto;
+}
+
+.assistant-sender {
+  border: 1px solid #dfe7f2;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 16px 48px rgba(15, 23, 42, 0.08);
+}
+
+.assistant-sender textarea {
+  font-size: 15px;
+}
+
+.assistant-sender .ant-sender-content {
+  min-height: 66px;
+  padding-block: 12px 6px;
+  padding-inline-start: 18px;
+  padding-inline-end: 18px;
+}
+
+.assistant-sender .ant-sender-input {
+  align-self: flex-start;
+}
+
+.assistant-sender .ant-sender-footer {
+  padding-block-start: 0;
+  padding-block-end: 12px;
+  padding-inline-start: 18px;
+  padding-inline-end: 18px;
+}
+
+.sender-footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.sender-footer-tools {
+  min-width: 0;
+  flex: 1;
+}
+
+.sender-footer .ant-tag {
+  margin-inline-end: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.sender-footer-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.sender-footer-actions .ant-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 999px;
+}
+
+.sender-action-button {
+  color: #2563eb;
+}
+
+.sender-action-button:hover {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.quick-prompts {
+  width: min(760px, 100%);
+  margin-top: 18px;
+}
+
+.quick-prompts .ant-prompts-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quick-prompts .ant-prompts-item {
+  min-height: 58px;
+  border: 1px solid #e5eaf1;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: none;
+}
+
+.quick-prompts .ant-prompts-item:hover {
+  border-color: #bfd4f8;
+  background: #ffffff;
+}
+
+.chat-canvas {
+  width: min(var(--chat-surface-width), 100%);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 28px 0 12px;
+}
+
+.bubble-list {
+  min-height: 0;
+}
+
+.bubble-list .ant-bubble-list-scroll-content {
+  padding-inline: 0;
+}
+
+.bubble-list .ant-bubble-content {
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.bubble-list .assistant-message .ant-bubble-content {
+  max-width: 100%;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.bubble-list .assistant-message .ant-bubble-body {
+  align-items: flex-start;
+}
+
+.bubble-list .user-message .ant-bubble-body {
+  align-items: flex-end;
+}
+
+.bubble-list .user-message .ant-bubble-content {
+  width: fit-content;
+  max-width: 100%;
+  box-shadow: none;
+}
+
+.bubble-list .ant-bubble-footer {
+  min-height: 22px;
+  margin-block-start: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.bubble-list .ant-bubble:hover .ant-bubble-footer,
+.bubble-list .ant-bubble:focus-within .ant-bubble-footer {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.message-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #8a93a3;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.message-actions.user {
+  justify-content: flex-end;
+}
+
+.message-time {
+  min-width: 38px;
+  color: #8a93a3;
+  font-variant-numeric: tabular-nums;
+}
+
+.message-action-button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: #8a93a3;
+}
+
+.message-action-button:hover {
+  background: #eef4fb;
+  color: #2563eb;
+}
+
+.composer-area {
+  padding: 12px 24px 22px;
+  background: linear-gradient(180deg, rgba(251, 252, 254, 0), #fbfcfe 26%);
+}

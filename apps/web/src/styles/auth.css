@@ -1,0 +1,357 @@
+.auth-shell {
+  display: grid;
+  width: 100vw;
+  height: 100vh;
+  place-items: center;
+  overflow: auto;
+  padding: 36px 24px;
+  background: linear-gradient(135deg, #fbfcfe 0%, #f3f7fc 52%, #fbfcfe 100%);
+}
+
+.auth-layout {
+  display: grid;
+  width: min(980px, 100%);
+  grid-template-columns: minmax(0, 1fr) 420px;
+  align-items: center;
+  gap: clamp(42px, 7vw, 96px);
+}
+
+.auth-visual {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.product-logo-stage {
+  position: relative;
+  display: grid;
+  width: min(320px, 34vw);
+  min-width: 240px;
+  aspect-ratio: 1;
+  place-items: center;
+  animation: logoFloat 5200ms cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.product-logo-ring,
+.product-logo-scan,
+.product-logo-bar {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+}
+
+.product-logo-ring {
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.8), rgba(239, 246, 255, 0.34));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.product-logo-ring-outer {
+  inset: 16px;
+  border-radius: 44px;
+  animation: logoRotate 12000ms linear infinite;
+}
+
+.product-logo-ring-middle {
+  inset: 58px;
+  border-radius: 34px;
+  animation: logoRotateReverse 9000ms linear infinite;
+}
+
+.product-logo-scan {
+  width: 72%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(37, 99, 235, 0.58), transparent);
+  transform-origin: center;
+  animation: logoScan 3600ms cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.product-logo-core {
+  display: inline-flex;
+  width: 124px;
+  height: 124px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 30px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #1d4ed8, #0ea5e9);
+  box-shadow:
+    0 18px 42px rgba(37, 99, 235, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  font-size: 48px;
+  animation: logoCorePulse 3000ms cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.product-logo-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(219, 234, 254, 0.28), rgba(96, 165, 250, 0.86));
+  opacity: 0.7;
+  animation: logoBarPulse 2400ms cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.product-logo-bar-a {
+  top: 76px;
+  right: 34px;
+  width: 68px;
+}
+
+.product-logo-bar-b {
+  bottom: 82px;
+  left: 28px;
+  width: 86px;
+  animation-delay: 420ms;
+}
+
+.product-logo-bar-c {
+  right: 64px;
+  bottom: 48px;
+  width: 48px;
+  animation-delay: 760ms;
+}
+
+.auth-intro {
+  max-width: 430px;
+  margin-top: 28px;
+  text-align: center;
+}
+
+.auth-intro h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 30px;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.22;
+}
+
+.auth-intro p {
+  margin: 12px 0 0;
+  color: #667085;
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.auth-card {
+  justify-self: end;
+  width: min(420px, 100%);
+  padding: 28px;
+  border: 1px solid #e5eaf1;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 22px 56px rgba(15, 23, 42, 0.08);
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.auth-copy {
+  margin-top: 28px;
+}
+
+.auth-copy h1 {
+  margin: 0;
+  color: #111827;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.18;
+}
+
+.auth-copy p {
+  margin: 10px 0 0;
+  color: #667085;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.auth-switch {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 24px 0 22px;
+  padding: 4px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f6f8fb;
+}
+
+.auth-switch::before {
+  position: absolute;
+  z-index: 0;
+  top: 4px;
+  left: 4px;
+  width: calc((100% - 8px) / 2);
+  height: calc(100% - 8px);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  content: "";
+  transform: translateX(0);
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.auth-switch.is-register::before {
+  transform: translateX(100%);
+}
+
+.auth-switch-button {
+  position: relative;
+  z-index: 1;
+  height: 34px;
+  border-radius: 8px;
+  color: #64748b;
+  background: transparent;
+  transition:
+    color 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    font-weight 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.auth-switch-button:hover {
+  background: transparent !important;
+  color: #2563eb;
+}
+
+.auth-switch-button.is-active,
+.auth-switch-button.is-active:hover {
+  background: transparent !important;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.auth-form .ant-form-item {
+  margin-bottom: 16px;
+}
+
+.auth-extra-field {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-8px);
+  transition:
+    max-height 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 340ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.auth-extra-field.is-visible {
+  max-height: 128px;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.auth-extra-field:not(.is-visible) .ant-form-item {
+  margin-bottom: 0;
+}
+
+.auth-form .ant-form-item-label > label {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.auth-form .ant-input-affix-wrapper,
+.auth-form .ant-input {
+  border-radius: 10px;
+  background: #fbfdff;
+}
+
+.auth-form .ant-input-prefix {
+  margin-inline-end: 10px;
+}
+
+.auth-options {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -2px 0 18px;
+}
+
+.auth-options .ant-checkbox-wrapper {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.auth-link {
+  height: auto;
+  padding: 0;
+  color: #2563eb;
+}
+
+.auth-submit {
+  height: 42px;
+  border-radius: 10px;
+  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.2);
+}
+
+@keyframes logoFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes logoRotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes logoRotateReverse {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes logoScan {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: rotate(0deg) scaleX(0.82);
+  }
+
+  50% {
+    opacity: 0.9;
+    transform: rotate(180deg) scaleX(1);
+  }
+}
+
+@keyframes logoCorePulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+@keyframes logoBarPulse {
+  0%,
+  100% {
+    opacity: 0.34;
+    transform: scaleX(0.72);
+  }
+
+  50% {
+    opacity: 0.88;
+    transform: scaleX(1);
+  }
+}
