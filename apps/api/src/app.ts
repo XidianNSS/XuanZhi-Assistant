@@ -24,6 +24,8 @@ type AuthContext =
       kind: 'service';
     };
 
+// NOTE(auth): 这是 OpenClaw 插件到玄知后端的服务级凭证，不是用户登录 token。
+// 业务数据归属仍然只能由 taskId 反查 task.userId 决定。
 const serviceToken = process.env.XUANZHI_API_TOKEN ?? 'dev-token';
 
 const taskStatuses = new Set<TaskStatus>(['created', 'planning', 'running', 'waiting_approval', 'completed', 'failed']);
@@ -61,6 +63,8 @@ function getAuth(request: FastifyRequest, store: MemoryStore): AuthContext | und
 }
 
 function getUserAuth(request: FastifyRequest, store: MemoryStore) {
+  // NOTE(sse): 原生 EventSource 不能设置 Authorization header，MVP 开发期允许
+  // token 放在查询参数里；后续仍必须在具体资源上做 userId 归属校验。
   const token = bearerToken(request) ?? queryToken(request);
   if (!token || token === serviceToken) {
     return undefined;
@@ -129,6 +133,7 @@ export function buildApp() {
     }
     const intent = body.intent && taskIntents.has(body.intent) ? body.intent : 'general';
     const task = store.createTask({
+      // WARNING(auth): 前端不允许决定 userId，创建任务时只能使用认证中间件解析出的当前用户。
       userId: auth.user.id,
       title: body.title?.trim() || titleFromInput(userInput),
       userInput,
@@ -212,6 +217,8 @@ export function buildApp() {
     stream.broadcast(taskId, { type: 'message.created', data: message });
 
     if (message.role === 'user' && store.listApprovals(taskId).length === 0) {
+      // NOTE(mock-agent): MVP 阶段只在首条用户消息后启动一次 Mock Agent，
+      // 避免同一任务重复生成审批链，便于验证端到端闭环。
       runMockAgent(task, store, stream);
     }
 
@@ -324,6 +331,8 @@ export function buildApp() {
       return reply.status(404).send({ message: '任务不存在' });
     }
 
+    // WARNING(sse): 必须先完成用户认证和 task 归属校验，再 hijack 响应；
+    // 否则长连接会绕过普通 JSON 错误返回，造成跨用户订阅风险。
     reply.raw.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache, no-transform',
@@ -362,6 +371,8 @@ function requireWritableTask(request: FastifyRequest, reply: FastifyReply, store
   }
   const { taskId } = request.params as { taskId: string };
   const task = store.tasks.get(taskId);
+  // 用户态写入必须拥有任务；服务态写入只用 taskId 定位任务，并由后端反查 userId。
+  // 对“不存在”和“无权访问”统一返回 404，避免暴露其他用户的任务存在性。
   if (!task || (auth.kind === 'user' && task.userId !== auth.user.id)) {
     void reply.status(404).send({ message: '任务不存在' });
     return undefined;
@@ -382,6 +393,7 @@ function updateApproval(
   }
   const { approvalId } = request.params as { approvalId: string };
   const approval = store.getApproval(approvalId);
+  // 审批是状态流转入口，必须先按 approval.userId 校验，再更新审批和任务状态。
   if (!approval || approval.userId !== auth.user.id) {
     return reply.status(404).send({ message: '审批不存在' });
   }

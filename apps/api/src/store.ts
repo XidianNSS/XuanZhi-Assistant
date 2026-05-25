@@ -18,6 +18,8 @@ import type {
 
 const nowIso = () => new Date().toISOString();
 
+// NOTE(auth): MVP 用固定测试账号验证多用户隔离；接入真实认证后应替换这里，
+// 但仍要保留“业务对象归属以后端 currentUser 为准”的规则。
 export const testUsers: User[] = [
   {
     id: 'user_a',
@@ -33,6 +35,8 @@ export const testUsers: User[] = [
   },
 ];
 
+// NOTE(storage): 第一阶段只需要验证 Agent 工作台闭环，内存 Map 可以让权限和 SSE
+// 行为保持清晰。对象上冗余 userId 是为了让查询、审批和插件上报的归属判断更直接。
 export class MemoryStore {
   readonly users = new Map<string, User>(testUsers.map((user) => [user.id, user]));
   readonly sessions = new Map<string, AuthSession>();
@@ -106,6 +110,7 @@ export class MemoryStore {
 
   getOwnedTask(taskId: string, userId: string) {
     const task = this.tasks.get(taskId);
+    // 对调用方隐藏“任务不存在”和“任务属于其他用户”的区别，避免泄露跨用户资源。
     if (!task || task.userId !== userId) {
       return undefined;
     }

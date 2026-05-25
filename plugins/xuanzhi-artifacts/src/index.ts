@@ -40,6 +40,8 @@ function optionalString(params: JsonObject, key: string) {
 }
 
 async function requestXuanzhi(path: string, init: { method?: string; body?: unknown }) {
+  // 插件只持有服务级 token，用于证明“调用方是受信任的运行时”；
+  // 数据最终归属必须由玄知后端按 taskId 反查，不能由工具参数中的 userId 决定。
   const response = await fetch(`${xuanzhiApiBaseUrl()}${path}`, {
     method: init.method ?? 'POST',
     headers: {
@@ -124,6 +126,7 @@ function createTool(description: string, parameters: JsonObject, handler: (param
 }
 
 const tools = {
+  // Agent 暴露工具刻意不设计 userId 参数，减少模型或插件伪造归属的入口。
   xuanzhi_emit_event: () =>
     createTool(
       'Emit a Xuanzhi task event. Do not include userId; Xuanzhi resolves ownership by taskId.',
@@ -193,6 +196,7 @@ export default {
   name: 'Xuanzhi Artifacts',
   description: 'Emit Xuanzhi task events, artifacts, approvals, and task status updates.',
   register(api: OpenClawPluginApi) {
+    // 保持普通对象形式可以先完成本地插件验证，后续接入正式 OpenClaw SDK 时再收敛类型。
     for (const [name, factory] of Object.entries(tools)) {
       api.registerTool?.(factory, { name });
     }

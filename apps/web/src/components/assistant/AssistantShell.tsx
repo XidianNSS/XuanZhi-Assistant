@@ -36,6 +36,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
   const [approvingId, setApprovingId] = useState<string>();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [workspaceCollapsed, setWorkspaceCollapsed] = useState(false);
+  // 同一时间只订阅当前任务的 SSE，切换任务或登出时立即关闭，避免旧任务事件写入新视图。
   const streamCleanupRef = useRef<(() => void) | undefined>(undefined);
 
   const closeStream = useCallback(() => {
@@ -69,6 +70,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
       closeStream();
       setActiveTaskId(taskId);
       try {
+        // 先加载任务快照再建立当前任务 SSE；创建新任务时会先进入这里，再发送首条消息触发 Mock Agent。
         const [task, messages, events, artifacts, approvals] = await Promise.all([
           taskApi.getTask(taskId),
           messageApi.getTaskMessages(taskId),
@@ -82,6 +84,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         setEventsByTask((current) => replaceTaskRecord(current, taskId, events));
         setArtifactsByTask((current) => replaceTaskRecord(current, taskId, artifacts));
         setApprovalsByTask((current) => replaceTaskRecord(current, taskId, approvals));
+        // 只保存当前任务连接的关闭函数，切换任务时 closeStream 会停止旧连接继续写入状态。
         streamCleanupRef.current = subscribeTaskStream(
           taskId,
           token,
@@ -142,6 +145,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         setTasks((current) => upsertById(current, task));
 
         if (task.id !== activeTaskId) {
+          // 新任务需要先打开详情并建立 SSE，再发送首条消息；Mock Agent 会在消息写入后立刻推送事件。
           await openTask(task.id);
         }
 
@@ -206,6 +210,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
   }, []);
 
   const handleLogout = useCallback(() => {
+    // 登出是用户隔离边界：关闭 SSE 并清掉所有任务态缓存，防止下一个用户看到上一位的残留数据。
     closeStream();
     setTasks([]);
     setMessagesByTask({});

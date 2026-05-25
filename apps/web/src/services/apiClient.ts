@@ -1,5 +1,6 @@
 import { getAuthToken } from '../stores/authStore';
 
+// 留空时走 Vite dev proxy 或同源部署；配置 VITE_API_BASE_URL 后可指向独立 API 服务。
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
 
 export function apiUrl(path: string) {

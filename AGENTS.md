@@ -45,6 +45,9 @@ xuanzhi-assistant/
 
 - 包管理器统一使用 `pnpm`。
 - 不要混用 `npm` 和 `pnpm`，不要提交 `package-lock.json`。
+- 当前阶段只是开发阶段，不构建项目，不生成生产发布产物。
+- 不要执行 `pnpm build`、`pnpm run build`、`pnpm claw:build`、Docker build、打包部署或发布相关命令，除非用户明确要求。
+- 验证以本地开发服务、接口联调、类型检查、lint 和手工演示为主。
 - 根目录需要 `pnpm-workspace.yaml`，至少包含：
 
 ```yaml
@@ -60,6 +63,18 @@ packages:
 onlyBuiltDependencies:
   - esbuild
 ```
+
+开发阶段推荐命令只包含：
+
+```bash
+pnpm install
+pnpm run dev
+pnpm lint
+pnpm typecheck
+pnpm test
+```
+
+如果某个包暂时没有 `lint`、`typecheck` 或 `test` 脚本，不需要为了通过验证临时搭建完整工程化链路。
 
 ## 4. 共享类型
 
@@ -311,6 +326,11 @@ Authorization: Bearer dev-token
 
 MVP 暂时不做：
 
+- 生产构建
+- 部署发布
+- Docker 镜像构建
+- CI/CD 流水线
+- 构建产物优化
 - 团队、组织、空间
 - 任务共享
 - 多人协同审批
@@ -329,7 +349,9 @@ MVP 暂时不做：
 
 ## 12. 验收标准
 
-完成 MVP 时必须满足：
+开发阶段验收只要求本地可开发、可联调、可演示，不要求生产构建通过。
+
+当前阶段应满足：
 
 - 用户可以登录
 - 后端可以识别 `currentUser`
@@ -347,6 +369,8 @@ MVP 暂时不做：
 - 用户 A 不能审批用户 B 的 approval
 - 插件上报数据后，数据仍归属正确用户
 - 第一版流程可以演示
+- 前端和后端可以通过本地 dev 服务联调
+- 不要求生成 `dist/`、生产包、Docker 镜像或部署产物
 
 推荐演示输入：
 

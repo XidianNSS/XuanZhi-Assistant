@@ -1,3 +1,5 @@
+// 前后端和插件文档共用的协议单一来源。userId 在业务对象上冗余保存，
+// 是为了让权限校验、列表查询和插件上报归属反查都不依赖前端参数。
 export type User = {
   id: string;
   name: string;
