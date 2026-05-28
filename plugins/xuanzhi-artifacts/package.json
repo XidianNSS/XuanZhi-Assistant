@@ -1,7 +1,7 @@
 {
   "name": "xuanzhi-artifacts",
   "private": true,
-  "version": "0.1.0",
+  "version": "2026.5.28",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -11,8 +11,14 @@
     "test": "vitest run",
     "lint": "tsc --noEmit"
   },
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "package.json",
+    ".env.example"
+  ],
   "openclaw": {
-    "extensions": ["./src/index.ts"]
+    "extensions": ["./dist/index.js"]
   },
   "devDependencies": {
     "@types/node": "^22.17.2",

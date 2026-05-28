@@ -24,7 +24,7 @@ type AgentTool = {
   name: string;
   description: string;
   parameters: ToolParameterSchema;
-  execute: (params: Record<string, unknown>) => Promise<ToolResult>;
+  execute: (...args: unknown[]) => Promise<ToolResult>;
 };
 
 type PluginLogger = {
@@ -61,10 +61,12 @@ function definePluginEntry(entry: PluginEntry): PluginEntry {
 
 function resolveConfig(api: OpenClawPluginApi) {
   return {
-    baseUrl: stringOr(
-      api.pluginConfig?.baseUrl,
-      process.env.XUANZHI_API_BASE_URL,
-      "http://127.0.0.1:3000",
+    baseUrl: trimTrailingSlash(
+      stringOr(
+        api.pluginConfig?.baseUrl,
+        process.env.XUANZHI_API_BASE_URL,
+        "http://127.0.0.1:3000",
+      ),
     ),
     token: stringOr(
       api.pluginConfig?.token,
@@ -79,6 +81,10 @@ function stringOr(...candidates: unknown[]): string {
     if (typeof c === "string" && c.trim()) return c.trim();
   }
   return "http://127.0.0.1:3000";
+}
+
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/+$/, "");
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +111,14 @@ async function xuanzhiFetch(
   }
 
   return response.json() as Promise<unknown>;
+}
+
+function toolParams(args: unknown[]) {
+  const candidate = args.length >= 2 ? args[1] : args[0];
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return {};
+  }
+  return candidate as Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +157,8 @@ async function wrapResult(
 // ---------------------------------------------------------------------------
 
 function makeEmitEvent(cfg: { baseUrl: string; token: string }) {
-  return async (params: Record<string, unknown>) => {
+  return async (...args: unknown[]) => {
+    const params = toolParams(args);
     const taskId = requireString(params, "taskId");
     return wrapResult(
       xuanzhiFetch(cfg, `/api/tasks/${encodeURIComponent(taskId)}/events`, {
@@ -160,7 +175,8 @@ function makeEmitEvent(cfg: { baseUrl: string; token: string }) {
 }
 
 function makeCreateArtifact(cfg: { baseUrl: string; token: string }) {
-  return async (params: Record<string, unknown>) => {
+  return async (...args: unknown[]) => {
+    const params = toolParams(args);
     const taskId = requireString(params, "taskId");
     return wrapResult(
       xuanzhiFetch(cfg, `/api/tasks/${encodeURIComponent(taskId)}/artifacts`, {
@@ -176,7 +192,8 @@ function makeCreateArtifact(cfg: { baseUrl: string; token: string }) {
 }
 
 function makeRequestApproval(cfg: { baseUrl: string; token: string }) {
-  return async (params: Record<string, unknown>) => {
+  return async (...args: unknown[]) => {
+    const params = toolParams(args);
     const taskId = requireString(params, "taskId");
     return wrapResult(
       xuanzhiFetch(cfg, `/api/tasks/${encodeURIComponent(taskId)}/approvals`, {
@@ -192,7 +209,8 @@ function makeRequestApproval(cfg: { baseUrl: string; token: string }) {
 }
 
 function makeUpdateTaskStatus(cfg: { baseUrl: string; token: string }) {
-  return async (params: Record<string, unknown>) => {
+  return async (...args: unknown[]) => {
+    const params = toolParams(args);
     const taskId = requireString(params, "taskId");
     return wrapResult(
       xuanzhiFetch(cfg, `/api/tasks/${encodeURIComponent(taskId)}/status`, {
@@ -214,8 +232,16 @@ const stringProp = { type: "string" as const };
 function buildToolParams(required: string[], extras: Record<string, unknown> = {}) {
   return {
     type: "object" as const,
+    additionalProperties: false,
     properties: { ...extras },
     required,
+  };
+}
+
+function enumProp(values: string[]) {
+  return {
+    type: "string" as const,
+    enum: values,
   };
 }
 
@@ -224,15 +250,15 @@ const eventParams = buildToolParams(["taskId", "type", "title"], {
   type: stringProp,
   title: stringProp,
   message: stringProp,
-  status: stringProp,
+  status: enumProp(["pending", "running", "success", "error", "waiting"]),
   payload: { type: "object" },
 });
 
 const artifactParams = buildToolParams(["taskId", "type", "title", "format"], {
   taskId: stringProp,
-  type: stringProp,
+  type: enumProp(["plan", "meeting_draft", "code_diff", "report", "tool_result", "final_answer"]),
   title: stringProp,
-  format: stringProp,
+  format: enumProp(["markdown", "json", "diff", "text"]),
   content: {},
 });
 
@@ -246,7 +272,7 @@ const approvalParams = buildToolParams(["taskId", "title", "description", "actio
 
 const statusParams = buildToolParams(["taskId", "status"], {
   taskId: stringProp,
-  status: stringProp,
+  status: enumProp(["created", "planning", "running", "waiting_approval", "completed", "failed"]),
 });
 
 // ---------------------------------------------------------------------------
