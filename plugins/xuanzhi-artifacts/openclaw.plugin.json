@@ -2,6 +2,45 @@
   "id": "xuanzhi-artifacts",
   "name": "Xuanzhi Artifacts",
   "description": "Emit Xuanzhi task events, artifacts, approvals, and task status updates.",
-  "version": "0.1.0",
-  "main": "dist/index.js"
+  "version": "2026.5.28",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "baseUrl": {
+        "type": "string",
+        "description": "Xuanzhi API base URL",
+        "default": "http://127.0.0.1:3000"
+      },
+      "token": {
+        "type": "string",
+        "description": "Service-level API token"
+      }
+    }
+  },
+  "toolMetadata": {
+    "xuanzhi_emit_event": {
+      "optional": false
+    },
+    "xuanzhi_create_artifact": {
+      "optional": false
+    },
+    "xuanzhi_request_approval": {
+      "optional": false
+    },
+    "xuanzhi_update_task_status": {
+      "optional": false
+    }
+  },
+  "contracts": {
+    "tools": [
+      "xuanzhi_emit_event",
+      "xuanzhi_create_artifact",
+      "xuanzhi_request_approval",
+      "xuanzhi_update_task_status"
+    ]
+  }
 }

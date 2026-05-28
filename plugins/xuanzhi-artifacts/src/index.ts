@@ -1,52 +1,106 @@
-type JsonObject = Record<string, unknown>;
+// Plugin SDK compatible types (matches openclaw/plugin-sdk shapes).
+// Replace with real SDK imports once OpenClaw is installed:
+//   import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
+//   import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 
-type ToolResult = {
-  content: Array<{ type: 'text'; text: string }>;
-  details: unknown;
+// ---------------------------------------------------------------------------
+// SDK-compatible type shapes
+// ---------------------------------------------------------------------------
+
+type PluginConfig = Record<string, unknown>;
+
+type ToolParameterSchema = {
+  type: "object";
+  properties: Record<string, unknown>;
+  required?: string[];
 };
 
-type XuanzhiTool = {
+type ToolResult = {
+  content: Array<{ type: "text"; text: string }>;
+  details?: unknown;
+};
+
+type AgentTool = {
+  name: string;
   description: string;
-  parameters: JsonObject;
-  execute: (toolCallId: string, params: JsonObject) => Promise<ToolResult>;
+  parameters: ToolParameterSchema;
+  execute: (...args: unknown[]) => Promise<ToolResult>;
+};
+
+type PluginLogger = {
+  debug(msg: string): void;
+  info(msg: string): void;
+  warn(msg: string): void;
+  error(msg: string): void;
 };
 
 type OpenClawPluginApi = {
-  registerTool?: (factory: () => XuanzhiTool, options: { name: string }) => void;
-  logger?: {
-    info?: (message: string) => void;
-  };
+  id: string;
+  name: string;
+  version?: string;
+  description?: string;
+  pluginConfig?: PluginConfig;
+  logger: PluginLogger;
+  registerTool: (tool: AgentTool, opts?: { optional?: boolean }) => void;
 };
 
-function xuanzhiApiBaseUrl() {
-  return process.env.XUANZHI_API_BASE_URL ?? 'http://127.0.0.1:3000';
+type PluginEntry = {
+  id: string;
+  name: string;
+  description?: string;
+  register: (api: OpenClawPluginApi) => void;
+};
+
+function definePluginEntry(entry: PluginEntry): PluginEntry {
+  return entry;
 }
 
-function xuanzhiApiToken() {
-  return process.env.XUANZHI_API_TOKEN ?? 'dev-token';
+// ---------------------------------------------------------------------------
+// Config resolution (pluginConfig -> env -> defaults)
+// ---------------------------------------------------------------------------
+
+function resolveConfig(api: OpenClawPluginApi) {
+  return {
+    baseUrl: trimTrailingSlash(
+      stringOr(
+        api.pluginConfig?.baseUrl,
+        process.env.XUANZHI_API_BASE_URL,
+        "http://127.0.0.1:3000",
+      ),
+    ),
+    token: stringOr(
+      api.pluginConfig?.token,
+      process.env.XUANZHI_API_TOKEN,
+      "dev-token",
+    ),
+  };
 }
 
-function requireString(params: JsonObject, key: string) {
-  const value = params[key];
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`${key} must be a non-empty string`);
+function stringOr(...candidates: unknown[]): string {
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return c.trim();
   }
-  return value.trim();
+  return "http://127.0.0.1:3000";
 }
 
-function optionalString(params: JsonObject, key: string) {
-  const value = params[key];
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/+$/, "");
 }
 
-async function requestXuanzhi(path: string, init: { method?: string; body?: unknown }) {
-  // 插件只持有服务级 token，用于证明“调用方是受信任的运行时”；
-  // 数据最终归属必须由玄知后端按 taskId 反查，不能由工具参数中的 userId 决定。
-  const response = await fetch(`${xuanzhiApiBaseUrl()}${path}`, {
-    method: init.method ?? 'POST',
+// ---------------------------------------------------------------------------
+// HTTP client
+// ---------------------------------------------------------------------------
+
+async function xuanzhiFetch(
+  cfg: { baseUrl: string; token: string },
+  path: string,
+  init: { method?: string; body?: unknown },
+) {
+  const response = await fetch(`${cfg.baseUrl}${path}`, {
+    method: init.method ?? "POST",
     headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${xuanzhiApiToken()}`,
+      "content-type": "application/json",
+      authorization: `Bearer ${cfg.token}`,
     },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   });
@@ -59,147 +113,212 @@ async function requestXuanzhi(path: string, init: { method?: string; body?: unkn
   return response.json() as Promise<unknown>;
 }
 
-function textResult(details: unknown): ToolResult {
+function toolParams(args: unknown[]) {
+  const candidate = args.length >= 2 ? args[1] : args[0];
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return {};
+  }
+  return candidate as Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// Parameter helpers
+// ---------------------------------------------------------------------------
+
+function requireString(params: Record<string, unknown>, key: string) {
+  const value = params[key];
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${key} must be a non-empty string`);
+  }
+  return value.trim();
+}
+
+function optionalString(params: Record<string, unknown>, key: string) {
+  const value = params[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Result helper
+// ---------------------------------------------------------------------------
+
+async function wrapResult(
+  apiCall: Promise<unknown>,
+): Promise<{ content: Array<{ type: "text"; text: string }>; details?: unknown }> {
+  const details = await apiCall;
   return {
-    content: [{ type: 'text', text: JSON.stringify(details, null, 2) }],
+    content: [{ type: "text", text: JSON.stringify(details, null, 2) }],
     details,
   };
 }
 
-export async function xuanzhi_emit_event(params: JsonObject) {
-  const taskId = requireString(params, 'taskId');
-  return requestXuanzhi(`/api/tasks/${encodeURIComponent(taskId)}/events`, {
-    body: {
-      type: requireString(params, 'type'),
-      title: requireString(params, 'title'),
-      message: optionalString(params, 'message'),
-      status: optionalString(params, 'status'),
-      payload: params.payload,
-    },
-  });
-}
+// ---------------------------------------------------------------------------
+// Tool execute functions (same business logic as before)
+// ---------------------------------------------------------------------------
 
-export async function xuanzhi_create_artifact(params: JsonObject) {
-  const taskId = requireString(params, 'taskId');
-  return requestXuanzhi(`/api/tasks/${encodeURIComponent(taskId)}/artifacts`, {
-    body: {
-      type: requireString(params, 'type'),
-      title: requireString(params, 'title'),
-      format: requireString(params, 'format'),
-      content: params.content,
-    },
-  });
-}
-
-export async function xuanzhi_request_approval(params: JsonObject) {
-  const taskId = requireString(params, 'taskId');
-  return requestXuanzhi(`/api/tasks/${encodeURIComponent(taskId)}/approvals`, {
-    body: {
-      title: requireString(params, 'title'),
-      description: requireString(params, 'description'),
-      action: requireString(params, 'action'),
-      payload: params.payload,
-    },
-  });
-}
-
-export async function xuanzhi_update_task_status(params: JsonObject) {
-  const taskId = requireString(params, 'taskId');
-  return requestXuanzhi(`/api/tasks/${encodeURIComponent(taskId)}/status`, {
-    method: 'PATCH',
-    body: {
-      status: requireString(params, 'status'),
-    },
-  });
-}
-
-const stringSchema = { type: 'string' };
-
-function createTool(description: string, parameters: JsonObject, handler: (params: JsonObject) => Promise<unknown>) {
-  return {
-    description,
-    parameters,
-    async execute(_toolCallId: string, params: JsonObject) {
-      return textResult(await handler(params));
-    },
+function makeEmitEvent(cfg: { baseUrl: string; token: string }) {
+  return async (...args: unknown[]) => {
+    const params = toolParams(args);
+    const taskId = requireString(params, "taskId");
+    return wrapResult(
+      xuanzhiFetch(cfg, `/api/tasks/${encodeURIComponent(taskId)}/events`, {
+        body: {
+          type: requireString(params, "type"),
+          title: requireString(params, "title"),
+          message: optionalString(params, "message"),
+          status: optionalString(params, "status"),
+          payload: params.payload,
+        },
+      }),
+    );
   };
 }
 
-const tools = {
-  // Agent 暴露工具刻意不设计 userId 参数，减少模型或插件伪造归属的入口。
-  xuanzhi_emit_event: () =>
-    createTool(
-      'Emit a Xuanzhi task event. Do not include userId; Xuanzhi resolves ownership by taskId.',
-      {
-        type: 'object',
-        properties: {
-          taskId: stringSchema,
-          type: stringSchema,
-          title: stringSchema,
-          message: stringSchema,
-          status: stringSchema,
-          payload: { type: 'object' },
+function makeCreateArtifact(cfg: { baseUrl: string; token: string }) {
+  return async (...args: unknown[]) => {
+    const params = toolParams(args);
+    const taskId = requireString(params, "taskId");
+    return wrapResult(
+      xuanzhiFetch(cfg, `/api/tasks/${encodeURIComponent(taskId)}/artifacts`, {
+        body: {
+          type: requireString(params, "type"),
+          title: requireString(params, "title"),
+          format: requireString(params, "format"),
+          content: params.content,
         },
-        required: ['taskId', 'type', 'title'],
-      },
-      xuanzhi_emit_event,
-    ),
-  xuanzhi_create_artifact: () =>
-    createTool(
-      'Create a Xuanzhi artifact for the task. Do not include userId.',
-      {
-        type: 'object',
-        properties: {
-          taskId: stringSchema,
-          type: stringSchema,
-          title: stringSchema,
-          format: stringSchema,
-          content: {},
-        },
-        required: ['taskId', 'type', 'title', 'format'],
-      },
-      xuanzhi_create_artifact,
-    ),
-  xuanzhi_request_approval: () =>
-    createTool(
-      'Request user approval for an external or high-impact action. Do not include userId.',
-      {
-        type: 'object',
-        properties: {
-          taskId: stringSchema,
-          title: stringSchema,
-          description: stringSchema,
-          action: stringSchema,
-          payload: { type: 'object' },
-        },
-        required: ['taskId', 'title', 'description', 'action'],
-      },
-      xuanzhi_request_approval,
-    ),
-  xuanzhi_update_task_status: () =>
-    createTool(
-      'Update a Xuanzhi task status after a meaningful execution transition.',
-      {
-        type: 'object',
-        properties: {
-          taskId: stringSchema,
-          status: stringSchema,
-        },
-        required: ['taskId', 'status'],
-      },
-      xuanzhi_update_task_status,
-    ),
-};
+      }),
+    );
+  };
+}
 
-export default {
-  id: 'xuanzhi-artifacts',
-  name: 'Xuanzhi Artifacts',
-  description: 'Emit Xuanzhi task events, artifacts, approvals, and task status updates.',
-  register(api: OpenClawPluginApi) {
-    // 保持普通对象形式可以先完成本地插件验证，后续接入正式 OpenClaw SDK 时再收敛类型。
-    for (const [name, factory] of Object.entries(tools)) {
-      api.registerTool?.(factory, { name });
-    }
-    api.logger?.info?.('[xuanzhi-artifacts] registered Xuanzhi reporting tools');
+function makeRequestApproval(cfg: { baseUrl: string; token: string }) {
+  return async (...args: unknown[]) => {
+    const params = toolParams(args);
+    const taskId = requireString(params, "taskId");
+    return wrapResult(
+      xuanzhiFetch(cfg, `/api/tasks/${encodeURIComponent(taskId)}/approvals`, {
+        body: {
+          title: requireString(params, "title"),
+          description: requireString(params, "description"),
+          action: requireString(params, "action"),
+          payload: params.payload,
+        },
+      }),
+    );
+  };
+}
+
+function makeUpdateTaskStatus(cfg: { baseUrl: string; token: string }) {
+  return async (...args: unknown[]) => {
+    const params = toolParams(args);
+    const taskId = requireString(params, "taskId");
+    return wrapResult(
+      xuanzhiFetch(cfg, `/api/tasks/${encodeURIComponent(taskId)}/status`, {
+        method: "PATCH",
+        body: {
+          status: requireString(params, "status"),
+        },
+      }),
+    );
+  };
+}
+
+// ---------------------------------------------------------------------------
+// JSON Schema helpers for tool parameters
+// ---------------------------------------------------------------------------
+
+const stringProp = { type: "string" as const };
+
+function buildToolParams(required: string[], extras: Record<string, unknown> = {}) {
+  return {
+    type: "object" as const,
+    additionalProperties: false,
+    properties: { ...extras },
+    required,
+  };
+}
+
+function enumProp(values: string[]) {
+  return {
+    type: "string" as const,
+    enum: values,
+  };
+}
+
+const eventParams = buildToolParams(["taskId", "type", "title"], {
+  taskId: stringProp,
+  type: stringProp,
+  title: stringProp,
+  message: stringProp,
+  status: enumProp(["pending", "running", "success", "error", "waiting"]),
+  payload: { type: "object" },
+});
+
+const artifactParams = buildToolParams(["taskId", "type", "title", "format"], {
+  taskId: stringProp,
+  type: enumProp(["plan", "meeting_draft", "code_diff", "report", "tool_result", "final_answer"]),
+  title: stringProp,
+  format: enumProp(["markdown", "json", "diff", "text"]),
+  content: {},
+});
+
+const approvalParams = buildToolParams(["taskId", "title", "description", "action"], {
+  taskId: stringProp,
+  title: stringProp,
+  description: stringProp,
+  action: stringProp,
+  payload: { type: "object" },
+});
+
+const statusParams = buildToolParams(["taskId", "status"], {
+  taskId: stringProp,
+  status: enumProp(["created", "planning", "running", "waiting_approval", "completed", "failed"]),
+});
+
+// ---------------------------------------------------------------------------
+// Plugin entry
+// ---------------------------------------------------------------------------
+
+export default definePluginEntry({
+  id: "xuanzhi-artifacts",
+  name: "Xuanzhi Artifacts",
+  description:
+    "Emit Xuanzhi task events, artifacts, approvals, and task status updates.",
+
+  register(api) {
+    const cfg = resolveConfig(api);
+    api.logger.info("[xuanzhi-artifacts] registering Xuanzhi reporting tools");
+
+    api.registerTool({
+      name: "xuanzhi_emit_event",
+      description:
+        "Emit a Xuanzhi task event. Do not include userId; Xuanzhi resolves ownership by taskId.",
+      parameters: eventParams,
+      execute: makeEmitEvent(cfg),
+    });
+
+    api.registerTool({
+      name: "xuanzhi_create_artifact",
+      description:
+        "Create a Xuanzhi artifact for the task. Do not include userId.",
+      parameters: artifactParams,
+      execute: makeCreateArtifact(cfg),
+    });
+
+    api.registerTool({
+      name: "xuanzhi_request_approval",
+      description:
+        "Request user approval for an external or high-impact action. Do not include userId.",
+      parameters: approvalParams,
+      execute: makeRequestApproval(cfg),
+    });
+
+    api.registerTool({
+      name: "xuanzhi_update_task_status",
+      description:
+        "Update a Xuanzhi task status after a meaningful execution transition.",
+      parameters: statusParams,
+      execute: makeUpdateTaskStatus(cfg),
+    });
   },
-};
+});
