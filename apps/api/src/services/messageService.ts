@@ -2,8 +2,31 @@ import type { Message, Task } from '@xuanzhi/shared/protocol';
 
 import { createMockAgentRuntime } from '../agents/mockRuntime.js';
 import type { AgentRuntime } from '../agents/runtime.js';
+import { getOpenClawClient } from '../agents/openclawClient.js';
+import { runOpenClawAgent } from '../agents/agentRunner.js';
+import { runMockAgent } from '../agents/mockAgent.js';
 import type { MemoryStore } from '../repositories/memoryStore.js';
 import type { StreamHub } from '../realtime/streamHub.js';
+
+function dispatchToAgent(task: Task, store: MemoryStore, stream: StreamHub) {
+  const client = getOpenClawClient();
+
+  if (client.isConnected()) {
+    const agent = store.getAgentByUserId(task.userId);
+    if (agent) {
+      return runOpenClawAgent(task, store, stream);
+    }
+    store.addEvent({
+      userId: task.userId,
+      taskId: task.id,
+      type: 'agent.not_found',
+      title: 'Agent 未配置',
+      message: '请先注册，系统会自动创建 Agent',
+      status: 'error',
+    });
+  }
+  return runMockAgent(task, store, stream);
+}
 
 export function createMessageService(
   store: MemoryStore,
@@ -56,7 +79,13 @@ export function createMessageService(
           .some((event) => event.type.startsWith('agent.') || event.type === 'approval.requested');
 
         if (!hasAgentHandledTask) {
-          runAgent(task, () => agentRuntime.runTask(task));
+          // Prefer OpenClaw Gateway, fall back to runtime
+          const client = getOpenClawClient();
+          if (client.isConnected() && store.getAgentByUserId(task.userId)) {
+            runAgent(task, () => dispatchToAgent(task, store, stream));
+          } else {
+            runAgent(task, () => agentRuntime.runTask(task));
+          }
         } else {
           runAgent(task, () => agentRuntime.runFollowup(task, message.content));
         }

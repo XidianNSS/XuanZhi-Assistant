@@ -1,5 +1,6 @@
 import type {
   AgentEventStatus,
+  AgentStatus,
   ArtifactFormat,
   ArtifactType,
   TaskIntent,
@@ -11,6 +12,7 @@ const taskIntents = new Set<TaskIntent>(['meeting', 'business', 'coding', 'qa', 
 const artifactTypes = new Set<ArtifactType>(['plan', 'meeting_draft', 'code_diff', 'report', 'tool_result', 'final_answer']);
 const artifactFormats = new Set<ArtifactFormat>(['markdown', 'json', 'diff', 'text']);
 const eventStatuses = new Set<AgentEventStatus>(['pending', 'running', 'success', 'error', 'waiting']);
+const agentStatuses = new Set<AgentStatus>(['offline', 'idle', 'running', 'error']);
 
 export function isTaskStatus(value: unknown): value is TaskStatus {
   return typeof value === 'string' && taskStatuses.has(value as TaskStatus);
@@ -32,4 +34,8 @@ export function normalizeAgentEventStatus(value: unknown): AgentEventStatus | un
   return typeof value === 'string' && eventStatuses.has(value as AgentEventStatus)
     ? (value as AgentEventStatus)
     : undefined;
+}
+
+export function isAgentStatus(value: unknown): value is AgentStatus {
+  return typeof value === 'string' && agentStatuses.has(value as AgentStatus);
 }
