@@ -368,9 +368,10 @@ export function Popover({
   );
 }
 
-export function Modal({ centered, children, footer, onCancel, open, title, width = 420 }: {
+export function Modal({ centered, children, className, footer, onCancel, open, title, width = 420 }: {
   centered?: boolean;
   children?: ReactNode;
+  className?: string;
   footer?: ReactNode;
   onCancel?: () => void;
   open?: boolean;
@@ -384,7 +385,7 @@ export function Modal({ centered, children, footer, onCancel, open, title, width
   return (
     <div className={cx('ui-modal-root', centered && 'is-centered')} role="dialog" aria-modal="true">
       <button className="ui-modal-backdrop" type="button" aria-label="关闭" onClick={onCancel} />
-      <section className="ui-modal-panel" style={{ width }}>
+      <section className={cx('ui-modal-panel', className)} style={{ width }}>
         <div className="ui-modal-header">
           <Text strong>{title}</Text>
           <Button type="text" shape="circle" icon={<Icon name="x" />} aria-label="关闭" onClick={onCancel} />

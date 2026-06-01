@@ -1,0 +1,125 @@
+.agent-create-page {
+  min-height: 100%;
+  padding: 42px 0 72px;
+}
+
+.agent-create-inner {
+  width: min(1284px, 100%);
+  margin: 0 auto;
+}
+
+.agent-create-header {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.agent-create-header h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: #18181b;
+  font-size: 24px;
+  font-weight: 750;
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+
+.agent-template-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.agent-template-card {
+  position: relative;
+  display: grid;
+  min-height: 214px;
+  overflow: hidden;
+  padding: 28px 210px 26px 28px;
+  border: 0;
+  border-radius: 18px;
+  background: #f5f5f5;
+  color: #18181b;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.agent-template-card:hover,
+.agent-template-card:focus-visible {
+  box-shadow: 0 18px 46px rgba(24, 24, 27, 0.08);
+  outline: 0;
+  transform: translateY(-2px);
+}
+
+.agent-template-card.is-blue {
+  background: #f3f8ff;
+}
+
+.agent-template-card.is-violet {
+  background: #f7f3ff;
+}
+
+.agent-template-card.is-amber {
+  background: #fff7ed;
+}
+
+.agent-template-card.is-mint {
+  background: #f0fdf4;
+}
+
+.agent-template-card.is-rose {
+  background: #fff1f2;
+}
+
+.agent-template-card.is-slate {
+  background: #f8fafc;
+}
+
+.agent-template-copy {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.agent-template-copy strong {
+  color: #18181b;
+  font-size: 18px;
+}
+
+.agent-template-copy > span {
+  color: #52525b;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.agent-template-copy ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  color: #3f3f46;
+  font-size: 14px;
+  line-height: 1.55;
+  list-style: none;
+}
+
+.agent-template-image {
+  position: absolute;
+  right: 28px;
+  bottom: 22px;
+  display: inline-flex;
+  width: 150px;
+  height: 150px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 34px;
+  background: rgba(255, 255, 255, 0.58);
+  font-size: 78px;
+  box-shadow: 0 16px 40px rgba(24, 24, 27, 0.08);
+}

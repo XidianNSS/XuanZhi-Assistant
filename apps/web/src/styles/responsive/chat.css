@@ -1,0 +1,41 @@
+@media (max-width: 1000px) {
+  .quick-prompts .ant-prompts-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .home-canvas {
+    min-height: 700px;
+    padding-top: 76px;
+  }
+
+  .home-canvas h1 {
+    font-size: 28px;
+  }
+
+  .home-canvas p {
+    font-size: 14px;
+  }
+
+  .quick-prompts .ant-prompts-list {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-prompts .ant-prompts-item {
+    min-height: 116px;
+  }
+
+  .sender-footer .ant-space {
+    row-gap: 6px;
+  }
+
+  .sender-footer {
+    gap: 10px;
+  }
+
+  .sender-footer-actions .ant-btn {
+    width: 30px;
+    height: 30px;
+  }
+}

@@ -1,0 +1,134 @@
+.assistant-shell {
+  --nav-rail-width: 68px;
+  --agent-sidebar-width: 240px;
+  --chat-surface-width: 952px;
+
+  display: grid;
+  grid-template-columns: calc(var(--nav-rail-width) + var(--agent-sidebar-width)) minmax(0, 1fr);
+  width: 100vw;
+  height: 100vh;
+  background: #ffffff;
+  transition: grid-template-columns 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.assistant-shell.is-sidebar-collapsed {
+  --chat-surface-width: 1040px;
+
+  grid-template-columns: var(--nav-rail-width) minmax(0, 1fr);
+}
+
+.assistant-main {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: #ffffff;
+}
+
+.assistant-main.is-chatting {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.assistant-main.is-file-space {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.workspace-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  padding: 0 24px 0 18px;
+  border-bottom: 0;
+}
+
+.workspace-header-start {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-title {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: 4px;
+}
+
+.workspace-title span {
+  max-width: 380px;
+  overflow: hidden;
+  color: #172033;
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-title small {
+  color: #8a93a3;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.sidebar-toggle {
+  color: #64748b;
+}
+
+.sidebar-toggle:hover {
+  background: #eef4fb;
+  color: #2563eb;
+}
+
+.collapsed-new-chat-wrap {
+  flex: 0 0 auto;
+  width: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-8px) scale(0.96);
+  transition:
+    width 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.assistant-shell.is-sidebar-collapsed .collapsed-new-chat-wrap {
+  width: 32px;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0) scale(1);
+}
+
+.collapsed-new-chat-button {
+  color: #64748b;
+}
+
+.collapsed-new-chat-button:hover {
+  background: #eef4fb;
+  color: #2563eb;
+}
+
+.workspace-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 24px;
+}
+
+.workspace-body.is-task {
+  overflow: auto;
+}
+
+.workspace-body.is-file {
+  padding: 0;
+  overflow: hidden;
+}
+
+.task-chat-column {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+}

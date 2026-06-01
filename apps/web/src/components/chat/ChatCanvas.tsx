@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Bubble } from '@ant-design/x';
 
 import type { Message } from '../../types/protocol';
+import { MarkdownContent } from './MarkdownContent';
 import { MessageActions } from './MessageActions';
 
 const bubbleRoles = {
@@ -10,7 +11,6 @@ const bubbleRoles = {
     variant: 'borderless' as const,
     shape: 'round' as const,
     className: 'assistant-message',
-    typing: { effect: 'typing' as const, step: 4, interval: 24 },
     styles: {
       content: {
         background: 'transparent',
@@ -46,7 +46,12 @@ export function ChatCanvas({ messages, onCopyMessage, onEditMessage }: ChatCanva
       messages.map((message) => ({
         key: message.id,
         role: message.role === 'user' ? 'user' : 'assistant',
-        content: message.content,
+        content:
+          message.role === 'assistant' ? (
+            <MarkdownContent content={message.content} streaming={message.status === 'streaming'} />
+          ) : (
+            message.content
+          ),
         footer: <MessageActions message={message} onCopy={onCopyMessage} onEdit={onEditMessage} />,
         footerPlacement: message.role === 'user' ? ('outer-end' as const) : ('outer-start' as const),
       })),

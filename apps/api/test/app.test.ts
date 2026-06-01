@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 
 import type { FastifyInstance } from 'fastify';
-import type { AgentEvent, Approval, Artifact, LoginResponse, Message, Task } from '@xuanzhi/shared/protocol';
+import type { AgentEvent, Approval, Artifact, LoginResponse, Message, Task, TaskIntent } from '@xuanzhi/shared/protocol';
 
 async function login(app: FastifyInstance, email: string) {
   const response = await app.inject({
@@ -19,7 +19,12 @@ async function login(app: FastifyInstance, email: string) {
   return response.json<LoginResponse>();
 }
 
-async function createTask(app: FastifyInstance, token: string, userInput: string) {
+async function createTask(
+  app: FastifyInstance,
+  token: string,
+  userInput: string,
+  options: { intent?: TaskIntent; title?: string } = {},
+) {
   const response = await app.inject({
     method: 'POST',
     url: '/api/tasks',
@@ -27,9 +32,9 @@ async function createTask(app: FastifyInstance, token: string, userInput: string
       authorization: `Bearer ${token}`,
     },
     payload: {
-      title: '预约项目复盘会',
+      title: (options.title ?? userInput.trim().slice(0, 28)) || '新任务',
       userInput,
-      intent: 'meeting',
+      intent: options.intent ?? 'meeting',
       userId: 'spoofed-user',
     },
   });
@@ -57,14 +62,21 @@ async function sendUserMessage(app: FastifyInstance, token: string, taskId: stri
 
 describe('xuanzhi api mvp', () => {
   let app: FastifyInstance;
+  const previousAgentRuntime = process.env.XUANZHI_AGENT_RUNTIME;
 
   beforeEach(async () => {
+    process.env.XUANZHI_AGENT_RUNTIME = 'mock';
     app = buildApp();
     await app.ready();
   });
 
   afterEach(async () => {
     await app.close();
+    if (previousAgentRuntime === undefined) {
+      delete process.env.XUANZHI_AGENT_RUNTIME;
+    } else {
+      process.env.XUANZHI_AGENT_RUNTIME = previousAgentRuntime;
+    }
   });
 
   it('authenticates test users and resolves currentUser from bearer token', async () => {
@@ -168,6 +180,76 @@ describe('xuanzhi api mvp', () => {
       userId: userA.user.id,
       taskId: task.id,
       status: 'pending',
+    });
+  });
+
+  it('answers knowledge-base questions without requesting a calendar approval on the first message', async () => {
+    const userA = await login(app, 'user-a@example.com');
+    const prompt = '基于上传的知识库资料，回答用户问题时如何展示来源和置信度？';
+    const task = await createTask(app, userA.token, prompt);
+
+    await sendUserMessage(app, userA.token, task.id, task.userInput);
+
+    const [taskResponse, messagesResponse, artifactsResponse, approvalsResponse] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: `/api/tasks/${task.id}`,
+        headers: { authorization: `Bearer ${userA.token}` },
+      }),
+      app.inject({
+        method: 'GET',
+        url: `/api/tasks/${task.id}/messages`,
+        headers: { authorization: `Bearer ${userA.token}` },
+      }),
+      app.inject({
+        method: 'GET',
+        url: `/api/tasks/${task.id}/artifacts`,
+        headers: { authorization: `Bearer ${userA.token}` },
+      }),
+      app.inject({
+        method: 'GET',
+        url: `/api/tasks/${task.id}/approvals`,
+        headers: { authorization: `Bearer ${userA.token}` },
+      }),
+    ]);
+
+    const messages = messagesResponse.json<Message[]>();
+    const artifacts = artifactsResponse.json<Artifact[]>();
+    const approvals = approvalsResponse.json<Approval[]>();
+
+    expect(taskResponse.json<Task>().status).toBe('completed');
+    expect(messages.map((message) => message.role)).toEqual(['user', 'assistant']);
+    expect(messages.at(-1)?.content).toContain('来源');
+    expect(artifacts.map((artifact) => artifact.type)).not.toContain('meeting_draft');
+    expect(approvals).toHaveLength(0);
+  });
+
+  it('keeps a task conversation open for follow-up user messages', async () => {
+    const userA = await login(app, 'user-a@example.com');
+    const task = await createTask(app, userA.token, '帮我创建一封邮件');
+
+    await sendUserMessage(app, userA.token, task.id, task.userInput);
+    await sendUserMessage(app, userA.token, task.id, '再补充一下收件人是张三');
+
+    const messagesResponse = await app.inject({
+      method: 'GET',
+      url: `/api/tasks/${task.id}/messages`,
+      headers: { authorization: `Bearer ${userA.token}` },
+    });
+    const eventsResponse = await app.inject({
+      method: 'GET',
+      url: `/api/tasks/${task.id}/events`,
+      headers: { authorization: `Bearer ${userA.token}` },
+    });
+
+    const messages = messagesResponse.json<Message[]>();
+    const events = eventsResponse.json<AgentEvent[]>();
+
+    expect(messages.map((message) => message.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
+    expect(messages.at(-1)?.content).toContain('再补充一下收件人是张三');
+    expect(events.at(-1)).toMatchObject({
+      type: 'task.followup.responded',
+      status: 'success',
     });
   });
 

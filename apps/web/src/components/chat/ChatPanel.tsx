@@ -14,9 +14,11 @@ export function ChatPanel({
   onCopyMessage,
   onEditMessage,
 }: ChatPanelProps) {
+  const hasMessages = messages.length > 0;
+
   return (
     <div className="chat-panel">
-      {messages.length > 0 ? (
+      {hasMessages ? (
         <ChatCanvas messages={messages} onCopyMessage={onCopyMessage} onEditMessage={onEditMessage} />
       ) : (
         <Empty className="chat-empty" description="这个任务还没有消息" />

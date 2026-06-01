@@ -1,0 +1,55 @@
+@media (max-width: 920px) {
+  .auth-layout {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .auth-card {
+    justify-self: center;
+  }
+
+  .product-logo-stage {
+    width: 220px;
+    min-width: 220px;
+  }
+
+  .auth-intro {
+    max-width: 360px;
+    margin-top: 20px;
+  }
+
+  .auth-intro h2 {
+    font-size: 24px;
+  }
+
+  .auth-intro p {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 640px) {
+  .auth-shell {
+    padding: 24px 14px;
+  }
+
+  .auth-layout {
+    gap: 22px;
+  }
+
+  .auth-card {
+    padding: 22px;
+  }
+
+  .auth-copy {
+    margin-top: 22px;
+  }
+
+  .product-logo-stage {
+    width: 188px;
+    min-width: 188px;
+  }
+
+  .auth-intro h2 {
+    font-size: 22px;
+  }
+}

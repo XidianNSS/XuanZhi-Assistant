@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { promptDrafts } from '../../data/assistantData';
+import type { AgentTemplate } from '../../data/assistantData';
 import * as approvalApi from '../../services/approvalApi';
 import * as messageApi from '../../services/messageApi';
 import { subscribeTaskStream } from '../../services/streamClient';
@@ -10,13 +11,16 @@ import {
   upsertById,
   upsertTaskRecordItem,
 } from '../../stores/taskStore';
-import type { AgentEvent, Approval, Artifact, Message, StreamEvent, Task, User } from '../../types/protocol';
-import { AgentWorkspace } from '../agent/AgentWorkspace';
+import type { Approval, Message, StreamEvent, Task, User } from '../../types/protocol';
+import { ApprovalCard } from '../chat/ApprovalCard';
 import { ChatComposer } from '../chat/ChatComposer';
 import { ChatHome } from '../chat/ChatHome';
 import { ChatPanel } from '../chat/ChatPanel';
+import { FileSpacePage } from '../files/FileSpacePage';
 import { toast } from '../ui';
+import { AgentCreatePage } from './AgentCreatePage';
 import { Sidebar } from './Sidebar';
+import type { SidebarAgentItem, WorkspaceKey } from './Sidebar';
 import { WorkspaceHeader } from './WorkspaceHeader';
 
 type AssistantShellProps = {
@@ -25,21 +29,46 @@ type AssistantShellProps = {
   onLogout: () => void;
 };
 
+function getStreamEventTaskId(event: StreamEvent) {
+  return event.type === 'task.updated' ? event.data.id : event.data.taskId;
+}
+
+const DEFAULT_AGENT_ID = 'agent-default';
+const activeTaskStatuses = new Set<Task['status']>(['created', 'planning', 'running', 'waiting_approval']);
+
+type LocalAgent = Omit<SidebarAgentItem, 'isRunning'>;
+type WorkspaceView = 'home' | 'chat' | 'agent-picker' | 'file';
+
+const defaultAgent: LocalAgent = {
+  id: DEFAULT_AGENT_ID,
+  name: '玄知助手',
+  description: '心直口快、赛博感、朋友式吐槽',
+  avatar: 'thunderbolt',
+  tone: 'default',
+};
+
+function isTaskStatusActive(status: Task['status']) {
+  return activeTaskStatuses.has(status);
+}
+
 export function AssistantShell({ currentUser, token, onLogout }: AssistantShellProps) {
   const [activeTaskId, setActiveTaskId] = useState<string>();
+  const [activeAgentId, setActiveAgentId] = useState(DEFAULT_AGENT_ID);
+  const [localAgents, setLocalAgents] = useState<LocalAgent[]>([]);
+  const [taskAgentMap, setTaskAgentMap] = useState<Record<string, string>>({});
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('home');
   const [inputValue, setInputValue] = useState('');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [messagesByTask, setMessagesByTask] = useState<Record<string, Message[]>>({});
-  const [eventsByTask, setEventsByTask] = useState<Record<string, AgentEvent[]>>({});
-  const [artifactsByTask, setArtifactsByTask] = useState<Record<string, Artifact[]>>({});
   const [approvalsByTask, setApprovalsByTask] = useState<Record<string, Approval[]>>({});
   const [approvingId, setApprovingId] = useState<string>();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [workspaceCollapsed, setWorkspaceCollapsed] = useState(false);
   // 同一时间只订阅当前任务的 SSE，切换任务或登出时立即关闭，避免旧任务事件写入新视图。
   const streamCleanupRef = useRef<(() => void) | undefined>(undefined);
+  const streamGenerationRef = useRef(0);
 
   const closeStream = useCallback(() => {
+    streamGenerationRef.current += 1;
     streamCleanupRef.current?.();
     streamCleanupRef.current = undefined;
   }, []);
@@ -50,13 +79,8 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         setTasks((current) => upsertById(current, event.data));
         break;
       case 'message.created':
+      case 'message.updated':
         setMessagesByTask((current) => upsertTaskRecordItem(current, event.data.taskId, event.data));
-        break;
-      case 'agent.event.created':
-        setEventsByTask((current) => upsertTaskRecordItem(current, event.data.taskId, event.data));
-        break;
-      case 'artifact.created':
-        setArtifactsByTask((current) => upsertTaskRecordItem(current, event.data.taskId, event.data));
         break;
       case 'approval.requested':
       case 'approval.updated':
@@ -66,51 +90,57 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
   }, []);
 
   const loadTaskSnapshot = useCallback(async (taskId: string) => {
-    const [task, messages, events, artifacts, approvals] = await Promise.all([
+    const [task, messages, approvals] = await Promise.all([
       taskApi.getTask(taskId),
       messageApi.getTaskMessages(taskId),
-      taskApi.getTaskEvents(taskId),
-      taskApi.getTaskArtifacts(taskId),
       taskApi.getTaskApprovals(taskId),
     ]);
 
     setTasks((current) => upsertById(current, task));
     setMessagesByTask((current) => replaceTaskRecord(current, taskId, messages));
-    setEventsByTask((current) => replaceTaskRecord(current, taskId, events));
-    setArtifactsByTask((current) => replaceTaskRecord(current, taskId, artifacts));
     setApprovalsByTask((current) => replaceTaskRecord(current, taskId, approvals));
 
     return task;
   }, []);
 
-  const loadApprovalSummaries = useCallback(async (nextTasks: Task[]) => {
-    if (nextTasks.length === 0) {
-      return {};
-    }
-
-    const entries = await Promise.all(
-      nextTasks.map(async (task) => [task.id, await taskApi.getTaskApprovals(task.id)] as const),
-    );
-
-    return Object.fromEntries(entries) as Record<string, Approval[]>;
-  }, []);
-
   const openTask = useCallback(
     async (taskId: string) => {
       closeStream();
+      const streamGeneration = streamGenerationRef.current;
       setActiveTaskId(taskId);
+      setWorkspaceView('chat');
       try {
         // 先加载任务快照再建立当前任务 SSE；创建新任务时会先进入这里，再发送首条消息触发 Mock Agent。
         await loadTaskSnapshot(taskId);
+        if (streamGeneration !== streamGenerationRef.current) {
+          return;
+        }
         // 只保存当前任务连接的关闭函数，切换任务时 closeStream 会停止旧连接继续写入状态。
-        streamCleanupRef.current = subscribeTaskStream(
+        const cleanup = subscribeTaskStream(
           taskId,
           token,
-          applyStreamEvent,
-          () => toast.warning('任务实时连接已断开，请重新选择任务'),
+          (event) => {
+            const eventTaskId = getStreamEventTaskId(event);
+            if (streamGeneration !== streamGenerationRef.current || eventTaskId !== taskId) {
+              return;
+            }
+            applyStreamEvent(event);
+          },
+          () => {
+            if (streamGeneration === streamGenerationRef.current) {
+              toast.warning('任务实时连接已断开，请重新选择任务');
+            }
+          },
         );
+        if (streamGeneration !== streamGenerationRef.current) {
+          cleanup();
+          return;
+        }
+        streamCleanupRef.current = cleanup;
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : '加载任务失败');
+        if (streamGeneration === streamGenerationRef.current) {
+          toast.error(error instanceof Error ? error.message : '加载任务失败');
+        }
       }
     },
     [applyStreamEvent, closeStream, loadTaskSnapshot, token],
@@ -124,13 +154,13 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
       .then(async (nextTasks) => {
         if (!cancelled) {
           setTasks(nextTasks);
-        }
-        const approvalSummaries = await loadApprovalSummaries(nextTasks);
-        if (!cancelled) {
-          setApprovalsByTask((current) => ({
-            ...current,
-            ...approvalSummaries,
-          }));
+          setTaskAgentMap((current) => {
+            const next = { ...current };
+            nextTasks.forEach((task) => {
+              next[task.id] ??= DEFAULT_AGENT_ID;
+            });
+            return next;
+          });
         }
       })
       .catch((error) => {
@@ -141,7 +171,25 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
       cancelled = true;
       closeStream();
     };
-  }, [closeStream, loadApprovalSummaries]);
+  }, [closeStream]);
+
+  const allAgents = useMemo(() => [defaultAgent, ...localAgents], [localAgents]);
+
+  const activeAgentTasks = useMemo(
+    () => tasks.filter((task) => (taskAgentMap[task.id] ?? DEFAULT_AGENT_ID) === activeAgentId),
+    [activeAgentId, taskAgentMap, tasks],
+  );
+
+  const agentItems = useMemo<SidebarAgentItem[]>(
+    () =>
+      allAgents.map((agent) => ({
+        ...agent,
+        isRunning: tasks.some(
+          (task) => (taskAgentMap[task.id] ?? DEFAULT_AGENT_ID) === agent.id && isTaskStatusActive(task.status),
+        ),
+      })),
+    [allAgents, taskAgentMap, tasks],
+  );
 
   const submitMessage = useCallback(
     async (value: string) => {
@@ -155,8 +203,8 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
 
       try {
         const task =
-          activeTaskId && tasks.some((item) => item.id === activeTaskId)
-            ? tasks.find((item) => item.id === activeTaskId)
+          activeTaskId && activeAgentTasks.some((item) => item.id === activeTaskId)
+            ? activeAgentTasks.find((item) => item.id === activeTaskId)
             : await taskApi.createTask({
                 title: question.slice(0, 28),
                 userInput: question,
@@ -168,6 +216,10 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         }
 
         setTasks((current) => upsertById(current, task));
+        setTaskAgentMap((current) => ({
+          ...current,
+          [task.id]: current[task.id] ?? activeAgentId,
+        }));
 
         if (task.id !== activeTaskId) {
           // 新任务需要先打开详情并建立 SSE，再发送首条消息；Mock Agent 会在消息写入后立刻推送事件。
@@ -179,19 +231,76 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         // Mock Agent 目前会同步生成事件、产物和审批；这里主动刷新一次快照，
         // 避免 SSE 连接尚未完全建立时漏掉首轮进度和审批。
         await loadTaskSnapshot(task.id);
+        setWorkspaceView('chat');
       } catch (error) {
         toast.error(error instanceof Error ? error.message : '发送失败');
         setInputValue(question);
       }
     },
-    [activeTaskId, loadTaskSnapshot, openTask, tasks],
+    [activeAgentId, activeAgentTasks, activeTaskId, loadTaskSnapshot, openTask],
   );
 
   const createConversation = useCallback(() => {
     closeStream();
     setActiveTaskId(undefined);
     setInputValue('');
+    setWorkspaceView('home');
   }, [closeStream]);
+
+  const showFileSpace = useCallback(() => {
+    closeStream();
+    setActiveTaskId(undefined);
+    setInputValue('');
+    setWorkspaceView('file');
+  }, [closeStream]);
+
+  const handleWorkspaceChange = useCallback(
+    (workspace: WorkspaceKey) => {
+      if (workspace === 'file') {
+        showFileSpace();
+        return;
+      }
+
+      if (workspaceView === 'file') {
+        setWorkspaceView('home');
+      }
+    },
+    [showFileSpace, workspaceView],
+  );
+
+  const showAgentCreatePage = useCallback(() => {
+    closeStream();
+    setActiveTaskId(undefined);
+    setInputValue('');
+    setWorkspaceView('agent-picker');
+  }, [closeStream]);
+
+  const selectAgent = useCallback(
+    (agentId: string) => {
+      closeStream();
+      setActiveAgentId(agentId);
+      setActiveTaskId(undefined);
+      setInputValue('');
+      setWorkspaceView('home');
+    },
+    [closeStream],
+  );
+
+  const createAgentFromTemplate = useCallback((template: AgentTemplate) => {
+    const nextAgent: LocalAgent = {
+      id: `agent-${template.key}-${Date.now()}`,
+      name: template.name,
+      description: template.description,
+      avatar: template.avatar,
+      tone: template.tone,
+    };
+
+    setLocalAgents((current) => [...current, nextAgent]);
+    setActiveAgentId(nextAgent.id);
+    setActiveTaskId(undefined);
+    setInputValue('');
+    setWorkspaceView('home');
+  }, []);
 
   const selectPrompt = useCallback((key: string) => {
     setInputValue(promptDrafts[key] ?? '');
@@ -208,18 +317,6 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((collapsed) => !collapsed);
   }, []);
-
-  const toggleWorkspace = useCallback(() => {
-    setWorkspaceCollapsed((collapsed) => !collapsed);
-  }, []);
-
-  const openPendingApprovalTask = useCallback(
-    (taskId: string) => {
-      setWorkspaceCollapsed(false);
-      void openTask(taskId);
-    },
-    [openTask],
-  );
 
   const approve = useCallback(async (approvalId: string) => {
     setApprovingId(approvalId);
@@ -250,89 +347,65 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
     closeStream();
     setTasks([]);
     setMessagesByTask({});
-    setEventsByTask({});
-    setArtifactsByTask({});
     setApprovalsByTask({});
+    setTaskAgentMap({});
+    setLocalAgents([]);
+    setActiveAgentId(DEFAULT_AGENT_ID);
+    setActiveTaskId(undefined);
+    setWorkspaceView('home');
     onLogout();
   }, [closeStream, onLogout]);
 
-  const activeTask = tasks.find((task) => task.id === activeTaskId);
+  const activeTask = activeAgentTasks.find((task) => task.id === activeTaskId);
   const activeMessages = activeTaskId ? messagesByTask[activeTaskId] ?? [] : [];
-  const activeEvents = activeTaskId ? eventsByTask[activeTaskId] ?? [] : [];
-  const activeArtifacts = activeTaskId ? artifactsByTask[activeTaskId] ?? [] : [];
   const activeApprovals = activeTaskId ? approvalsByTask[activeTaskId] ?? [] : [];
-  const pendingApprovalSummaries = useMemo(
-    () =>
-      tasks
-        .map((task) => ({
-          task,
-          approvals: (approvalsByTask[task.id] ?? []).filter((approval) => approval.status === 'pending'),
-        }))
-        .filter((item) => item.approvals.length > 0),
-    [approvalsByTask, tasks],
-  );
-  const pendingApprovalCount = pendingApprovalSummaries.reduce((count, item) => count + item.approvals.length, 0);
-  const approvalRecords = useMemo(
-    () =>
-      tasks.flatMap((task) =>
-        (approvalsByTask[task.id] ?? []).map((approval) => ({
-          approval,
-          task,
-        })),
-      ),
-    [approvalsByTask, tasks],
-  );
+  const activePendingApprovals = activeApprovals.filter((approval) => approval.status === 'pending');
   const isChatting = Boolean(activeTask);
+  const isAgentPicker = workspaceView === 'agent-picker';
+  const isFileSpace = workspaceView === 'file';
+  const activeWorkspace: WorkspaceKey = isFileSpace ? 'file' : 'chat';
 
   return (
     <main className={`assistant-shell ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
       <Sidebar
         activeKey={activeTaskId}
+        activeAgentId={activeAgentId}
+        activeWorkspace={activeWorkspace}
+        agentItems={agentItems}
         collapsed={sidebarCollapsed}
         currentUser={currentUser}
-        approvalRecords={approvalRecords}
-        tasks={tasks}
+        tasks={activeAgentTasks}
         onActiveChange={(taskId) => void openTask(taskId)}
+        onAgentSelect={selectAgent}
+        onCreateAgent={showAgentCreatePage}
         onCreateConversation={createConversation}
+        onWorkspaceChange={handleWorkspaceChange}
         onLogout={handleLogout}
       />
 
-      <section
-        className={`assistant-main ${isChatting ? 'is-chatting' : 'is-home'} ${
-          workspaceCollapsed ? 'is-workspace-collapsed' : ''
-        }`}
-      >
-        <WorkspaceHeader
-          sidebarCollapsed={sidebarCollapsed}
-          workspaceCollapsed={workspaceCollapsed}
-          pendingApprovalCount={pendingApprovalCount}
-          pendingApprovalSummaries={pendingApprovalSummaries}
-          task={activeTask}
-          onCreateConversation={createConversation}
-          onOpenTask={openPendingApprovalTask}
-          onToggleSidebar={toggleSidebar}
-          onToggleWorkspace={toggleWorkspace}
-        />
+      <section className={`assistant-main ${isFileSpace ? 'is-file-space' : isChatting ? 'is-chatting' : 'is-home'}`}>
+        {isFileSpace ? null : (
+          <WorkspaceHeader
+            sidebarCollapsed={sidebarCollapsed}
+            task={activeTask}
+            onCreateConversation={createConversation}
+            onToggleSidebar={toggleSidebar}
+          />
+        )}
 
-        <div className={`workspace-body ${isChatting ? 'is-task' : ''}`}>
-          {isChatting && activeTask ? (
-            <div className={`task-workspace ${workspaceCollapsed ? 'is-workspace-collapsed' : ''}`}>
-              <section className="task-chat-column">
-                <ChatPanel
-                  messages={activeMessages}
-                  onCopyMessage={copyMessage}
-                  onEditMessage={editMessage}
-                />
-              </section>
-              <AgentWorkspace
-                approvals={activeApprovals}
-                approvingId={approvingId}
-                events={activeEvents}
-                artifacts={activeArtifacts}
-                onApprove={approve}
-                onReject={reject}
+        <div className={`workspace-body ${isFileSpace ? 'is-file' : isChatting ? 'is-task' : ''}`}>
+          {isFileSpace ? (
+            <FileSpacePage />
+          ) : isAgentPicker ? (
+            <AgentCreatePage onSelectTemplate={createAgentFromTemplate} />
+          ) : isChatting && activeTask ? (
+            <section className="task-chat-column">
+              <ChatPanel
+                messages={activeMessages}
+                onCopyMessage={copyMessage}
+                onEditMessage={editMessage}
               />
-            </div>
+            </section>
           ) : (
             <ChatHome
               inputValue={inputValue}
@@ -343,9 +416,24 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
           )}
         </div>
 
-        {isChatting ? (
+        {isChatting && !isFileSpace ? (
           <footer className="composer-area">
-            <ChatComposer value={inputValue} variant="chat" onChange={setInputValue} onSubmit={submitMessage} />
+            <div className="composer-stack">
+              {activePendingApprovals.length > 0 ? (
+                <div className="composer-approval-stack">
+                  {activePendingApprovals.map((approval) => (
+                    <ApprovalCard
+                      key={approval.id}
+                      approval={approval}
+                      loading={approvingId === approval.id}
+                      onApprove={approve}
+                      onReject={reject}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              <ChatComposer value={inputValue} variant="chat" onChange={setInputValue} onSubmit={submitMessage} />
+            </div>
           </footer>
         ) : null}
       </section>

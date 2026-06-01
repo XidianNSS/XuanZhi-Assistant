@@ -3,8 +3,38 @@ import type { Task } from '@xuanzhi/shared/protocol';
 import type { MemoryStore } from '../repositories/memoryStore.js';
 import type { StreamHub } from '../realtime/streamHub.js';
 
-// NOTE(mock-agent): 这是接入 OpenClaw 前的可演示执行器，用同一套 event/artifact/approval
-// 写入路径验证权限、SSE 和审批闭环。所有生成数据都必须继承 task.userId。
+const meetingTargetPattern = /(会议|开会|会面|日程|复盘会|calendar|meeting|schedule)/i;
+const meetingActionPattern = /(帮我|请|创建|新建|预约|安排|发起|预定|book|create|schedule)/i;
+const specificSchedulePattern = /(今天|明天|后天|下周|本周|周[一二三四五六日天]|上午|下午|晚上|\d+\s*点|参会|张三|李四|王五)/i;
+const exploratoryQuestionPattern = /(都能|可以|能否|能不能|如何|怎么|什么|介绍|举例|说明).*[?？]?/i;
+const knowledgeQuestionPattern = /(知识库|资料|来源|置信度|引用|检索|文档|回答用户问题)/;
+
+function isMeetingAutomationRequest(task: Task) {
+  if (task.intent !== 'meeting') {
+    return false;
+  }
+
+  const text = `${task.title} ${task.userInput}`.trim();
+  const hasTarget = meetingTargetPattern.test(text);
+  const hasAction = meetingActionPattern.test(text);
+  const isExploratoryQuestion = exploratoryQuestionPattern.test(text) && !specificSchedulePattern.test(text);
+
+  return hasTarget && hasAction && !isExploratoryQuestion;
+}
+
+function answerForGeneralInput(userInput: string) {
+  if (knowledgeQuestionPattern.test(userInput)) {
+    return [
+      '可以按普通问答处理：先基于上传知识库检索相关片段，再在回答末尾展示来源、引用片段和置信度。',
+      '如果资料不足，应明确说明“未在知识库中找到可靠依据”，而不是直接触发创建会议这类外部动作。',
+    ].join('\n');
+  }
+
+  return `收到：${userInput}。我会先按普通对话理解，不会直接创建会议或调用外部动作；如果后续需要工具操作，我会先给出确认提示。`;
+}
+
+// NOTE(mock-agent): 这是接入真实 Agent 前的演示执行器，用同一套 event/artifact/approval
+// 写入路径验证权限、SSE 和审批闭环。只有明确会议/日程创建请求才会生成审批动作。
 export function runMockAgent(task: Task, store: MemoryStore, stream: StreamHub) {
   const publishTask = (status: Task['status']) => {
     const updated = store.updateTaskStatus(task.id, status);
@@ -31,6 +61,17 @@ export function runMockAgent(task: Task, store: MemoryStore, stream: StreamHub) 
     return approval;
   };
 
+  const publishMessage = (content: string) => {
+    const message = store.addMessage({
+      userId: task.userId,
+      taskId: task.id,
+      role: 'assistant',
+      content,
+    });
+    stream.broadcast(task.id, { type: 'message.created', data: message });
+    return message;
+  };
+
   publishTask('running');
   publishEvent({
     userId: task.userId,
@@ -40,6 +81,28 @@ export function runMockAgent(task: Task, store: MemoryStore, stream: StreamHub) 
     message: task.userInput,
     status: 'success',
   });
+
+  if (!isMeetingAutomationRequest(task)) {
+    publishEvent({
+      userId: task.userId,
+      taskId: task.id,
+      type: 'agent.analysis.started',
+      title: '正在分析问题',
+      message: 'Agent 正在按普通对话处理本次输入。',
+      status: 'running',
+    });
+    publishMessage(answerForGeneralInput(task.userInput));
+    publishEvent({
+      userId: task.userId,
+      taskId: task.id,
+      type: 'agent.answer.created',
+      title: '已生成回复',
+      status: 'success',
+    });
+    publishTask('completed');
+    return;
+  }
+
   publishEvent({
     userId: task.userId,
     taskId: task.id,
@@ -108,4 +171,24 @@ export function runMockAgent(task: Task, store: MemoryStore, stream: StreamHub) 
     title: '等待用户确认是否创建会议',
     status: 'waiting',
   });
+}
+
+export function runMockFollowup(task: Task, content: string, store: MemoryStore, stream: StreamHub) {
+  const event = store.addEvent({
+    userId: task.userId,
+    taskId: task.id,
+    type: 'task.followup.responded',
+    title: '已处理补充消息',
+    message: content,
+    status: 'success',
+  });
+  stream.broadcast(task.id, { type: 'agent.event.created', data: event });
+
+  const message = store.addMessage({
+    userId: task.userId,
+    taskId: task.id,
+    role: 'assistant',
+    content: `收到补充信息：“${content}”。我会把它纳入当前对话上下文继续处理。`,
+  });
+  stream.broadcast(task.id, { type: 'message.created', data: message });
 }

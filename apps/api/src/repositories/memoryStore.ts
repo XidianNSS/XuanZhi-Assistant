@@ -1,6 +1,9 @@
+import { hashSync, compareSync } from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
 
 import type {
+  Agent,
+  AgentStatus,
   AgentEvent,
   AgentEventStatus,
   Approval,
@@ -14,41 +17,87 @@ import type {
   TaskIntent,
   TaskStatus,
   User,
+  UserRole,
 } from '@xuanzhi/shared/protocol';
 
 const nowIso = () => new Date().toISOString();
 
-// NOTE(auth): MVP 用固定测试账号验证多用户隔离；接入真实认证后应替换这里，
-// 但仍要保留“业务对象归属以后端 currentUser 为准”的规则。
+const BCRYPT_ROUNDS = 10;
+
+const DEV_PASSWORD_HASH = hashSync('dev-password', BCRYPT_ROUNDS);
+
 export const testUsers: User[] = [
+  {
+    id: 'user_admin',
+    name: '管理员',
+    email: 'admin@example.com',
+    role: 'admin' as UserRole,
+    createdAt: nowIso(),
+  },
   {
     id: 'user_a',
     name: '用户 A',
     email: 'user-a@example.com',
+    role: 'user' as UserRole,
     createdAt: nowIso(),
   },
   {
     id: 'user_b',
     name: '用户 B',
     email: 'user-b@example.com',
+    role: 'user' as UserRole,
     createdAt: nowIso(),
   },
 ];
 
-// NOTE(storage): 第一阶段只需要验证 Agent 工作台闭环，内存 Map 可以让权限和 SSE
-// 行为保持清晰。对象上冗余 userId 是为了让查询、审批和插件上报的归属判断更直接。
 export class MemoryStore {
   readonly users = new Map<string, User>(testUsers.map((user) => [user.id, user]));
+  readonly passwordHashes = new Map<string, string>(
+    testUsers.map((user) => [user.id, DEV_PASSWORD_HASH]),
+  );
   readonly sessions = new Map<string, AuthSession>();
   readonly tasks = new Map<string, Task>();
   readonly messages = new Map<string, Message[]>();
   readonly events = new Map<string, AgentEvent[]>();
   readonly artifacts = new Map<string, Artifact[]>();
   readonly approvals = new Map<string, Approval>();
+  readonly agents = new Map<string, Agent>();
+
+  // ── User ──
 
   findUserByEmail(email: string) {
     return [...this.users.values()].find((user) => user.email === email);
   }
+
+  getUserById(userId: string) {
+    return this.users.get(userId);
+  }
+
+  listUsers() {
+    return [...this.users.values()];
+  }
+
+  createUser(input: { email: string; name: string; password: string; role?: UserRole }) {
+    const id = `user_${randomUUID()}`;
+    const user: User = {
+      id,
+      name: input.name,
+      email: input.email,
+      role: input.role ?? 'user',
+      createdAt: nowIso(),
+    };
+    this.users.set(id, user);
+    this.passwordHashes.set(id, hashSync(input.password, BCRYPT_ROUNDS));
+    return user;
+  }
+
+  verifyPassword(userId: string, password: string) {
+    const hash = this.passwordHashes.get(userId);
+    if (!hash) return false;
+    return compareSync(password, hash);
+  }
+
+  // ── Session ──
 
   createSession(userId: string) {
     const session: AuthSession = {
@@ -72,6 +121,8 @@ export class MemoryStore {
     }
     return this.users.get(session.userId);
   }
+
+  // ── Task ──
 
   createTask(input: { userId: string; title: string; userInput: string; intent: TaskIntent }) {
     const task: Task = {
@@ -108,31 +159,68 @@ export class MemoryStore {
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
+  listAllTasks() {
+    return [...this.tasks.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
   getOwnedTask(taskId: string, userId: string) {
     const task = this.tasks.get(taskId);
-    // 对调用方隐藏“任务不存在”和“任务属于其他用户”的区别，避免泄露跨用户资源。
     if (!task || task.userId !== userId) {
       return undefined;
     }
     return task;
   }
 
-  addMessage(input: { userId: string; taskId: string; role: Message['role']; content: string }) {
+  // ── Message ──
+
+  addMessage(input: {
+    userId: string;
+    taskId: string;
+    role: Message['role'];
+    content: string;
+    status?: Message['status'];
+  }) {
     const message: Message = {
       id: `msg_${randomUUID()}`,
       userId: input.userId,
       taskId: input.taskId,
       role: input.role,
       content: input.content,
+      status: input.status,
       createdAt: nowIso(),
     };
     this.messages.set(input.taskId, [...(this.messages.get(input.taskId) ?? []), message]);
     return message;
   }
 
+  updateMessage(taskId: string, messageId: string, input: { content?: string; status?: Message['status'] }) {
+    const messages = this.messages.get(taskId);
+    if (!messages) {
+      return undefined;
+    }
+
+    const current = messages.find((message) => message.id === messageId);
+    if (!current) {
+      return undefined;
+    }
+
+    const updated: Message = {
+      ...current,
+      content: input.content ?? current.content,
+      status: input.status ?? current.status,
+    };
+    this.messages.set(
+      taskId,
+      messages.map((message) => (message.id === messageId ? updated : message)),
+    );
+    return updated;
+  }
+
   listMessages(taskId: string) {
     return this.messages.get(taskId) ?? [];
   }
+
+  // ── Event ──
 
   addEvent(input: {
     userId: string;
@@ -162,6 +250,8 @@ export class MemoryStore {
     return this.events.get(taskId) ?? [];
   }
 
+  // ── Artifact ──
+
   addArtifact(input: {
     userId: string;
     taskId: string;
@@ -187,6 +277,8 @@ export class MemoryStore {
   listArtifacts(taskId: string) {
     return this.artifacts.get(taskId) ?? [];
   }
+
+  // ── Approval ──
 
   addApproval(input: {
     userId: string;
@@ -232,5 +324,81 @@ export class MemoryStore {
 
   listApprovals(taskId: string) {
     return [...this.approvals.values()].filter((approval) => approval.taskId === taskId);
+  }
+
+  // ── Agent ──
+
+  createAgent(input: { userId: string; name: string; gatewayAgentId?: string; workspace?: string }) {
+    const id = `agent_${randomUUID()}`;
+    const agent: Agent = {
+      id,
+      userId: input.userId,
+      name: input.name,
+      gatewayAgentId: input.gatewayAgentId ?? null,
+      workspace: input.workspace ?? '',
+      sessionKey: `xuanzhi:session:${id}`,
+      status: 'offline',
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    this.agents.set(id, agent);
+    return agent;
+  }
+
+  updateAgentGatewayInfo(agentId: string, gatewayAgentId: string, workspace: string) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return undefined;
+    const updated: Agent = {
+      ...agent,
+      gatewayAgentId,
+      workspace,
+      updatedAt: nowIso(),
+    };
+    this.agents.set(agentId, updated);
+    return updated;
+  }
+
+  getAgent(agentId: string) {
+    return this.agents.get(agentId);
+  }
+
+  getAgentByUserId(userId: string) {
+    return [...this.agents.values()].find((agent) => agent.userId === userId);
+  }
+
+  listAgents() {
+    return [...this.agents.values()];
+  }
+
+  listAgentsByUserId(userId: string) {
+    return [...this.agents.values()].filter((agent) => agent.userId === userId);
+  }
+
+  updateAgentStatus(agentId: string, status: AgentStatus) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return undefined;
+    const updated: Agent = {
+      ...agent,
+      status,
+      updatedAt: nowIso(),
+    };
+    this.agents.set(agentId, updated);
+    return updated;
+  }
+
+  // ── Stats ──
+
+  getStats() {
+    const allTasks = [...this.tasks.values()];
+    return {
+      users: this.users.size,
+      agents: this.agents.size,
+      tasks: {
+        total: allTasks.length,
+        running: allTasks.filter((t) => t.status === 'running').length,
+        completed: allTasks.filter((t) => t.status === 'completed').length,
+        failed: allTasks.filter((t) => t.status === 'failed').length,
+      },
+    };
   }
 }

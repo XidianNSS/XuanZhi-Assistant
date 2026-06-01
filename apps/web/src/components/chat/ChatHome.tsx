@@ -1,7 +1,6 @@
 import { Prompts } from '@ant-design/x';
 
 import { promptItems } from '../../data/assistantData';
-import { Icon } from '../ui/icons';
 import { ChatComposer } from './ChatComposer';
 
 type ChatHomeProps = {
@@ -14,20 +13,24 @@ type ChatHomeProps = {
 export function ChatHome({ inputValue, onInputChange, onPromptSelect, onSubmitMessage }: ChatHomeProps) {
   return (
     <div className="home-canvas">
-      <span className="welcome-avatar">
-        <Icon name="robot" />
-      </span>
-      <h1>我是玄知助手，很高兴见到你</h1>
-      <p>你可以直接提问，或开启知识库、联网搜索和工具调用来完成更复杂的任务。</p>
-
-      <ChatComposer value={inputValue} variant="home" onChange={onInputChange} onSubmit={onSubmitMessage} />
+      <div className="home-title-wrap">
+        <h1>
+          Hi，我是玄知助手
+          <span aria-hidden="true">✦</span>
+        </h1>
+        <span className="title-underline" aria-hidden="true" />
+      </div>
+      <p>随时随地，帮你高效干活</p>
 
       <Prompts
         wrap
         items={promptItems}
         className="quick-prompts"
+        classNames={{ item: 'quick-prompt-card' }}
         onItemClick={({ data }) => onPromptSelect(String(data.key))}
       />
+
+      <ChatComposer value={inputValue} variant="home" onChange={onInputChange} onSubmit={onSubmitMessage} />
     </div>
   );
 }

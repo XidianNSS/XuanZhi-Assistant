@@ -1,9 +1,8 @@
 import type { ReactNode } from 'react';
 import { Sender } from '@ant-design/x';
 
-import { Button, Space, Tag, Tooltip } from '../ui';
+import { Button, Tooltip } from '../ui';
 import { Icon } from '../ui/icons';
-import { toolTags } from '../../data/assistantData';
 import type { ComposerVariant } from '../../types/chat';
 
 type ChatComposerProps = {
@@ -16,13 +15,6 @@ type ChatComposerProps = {
 export function ChatComposer({ value, variant, onChange, onSubmit }: ChatComposerProps) {
   const renderFooter = (actionNode: ReactNode) => (
     <div className="sender-footer">
-      <Space className="sender-footer-tools" size={6} wrap>
-        {toolTags.map((item) => (
-          <Tag key={item.label} icon={item.icon}>
-            {item.label}
-          </Tag>
-        ))}
-      </Space>
       <div className="sender-footer-actions">
         <Tooltip title="添加附件">
           <Button

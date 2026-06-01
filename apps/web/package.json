@@ -6,19 +6,21 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "test:ui-contract": "node --test test/ui-style-contract.test.mjs"
   },
   "dependencies": {
-    "@xuanzhi/shared": "workspace:*",
     "@ant-design/x": "^2.7.0",
+    "@ant-design/x-markdown": "^2.7.0",
+    "@xuanzhi/shared": "workspace:*",
     "antd": "^6.1.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^5.0.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^5.0.0",
     "typescript": "^5.8.3",
     "vite": "^7.0.0"
   }

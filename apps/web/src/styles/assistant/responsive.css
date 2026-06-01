@@ -1,0 +1,128 @@
+@media (max-width: 1000px) {
+  .assistant-shell {
+    --agent-sidebar-width: 210px;
+
+    grid-template-columns: calc(var(--nav-rail-width) + var(--agent-sidebar-width)) minmax(0, 1fr);
+  }
+
+  .assistant-shell.is-sidebar-collapsed {
+    grid-template-columns: var(--nav-rail-width) minmax(0, 1fr);
+  }
+
+  .assistant-sidebar {
+    grid-template-columns: var(--nav-rail-width) var(--agent-sidebar-width);
+  }
+
+  .assistant-sidebar-panel {
+    width: var(--agent-sidebar-width);
+  }
+
+  .agent-template-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .assistant-shell,
+  .assistant-shell.is-sidebar-collapsed {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .assistant-sidebar,
+  .assistant-shell.is-sidebar-collapsed .assistant-sidebar {
+    grid-template-columns: var(--nav-rail-width) minmax(0, 1fr);
+    max-height: 286px;
+    border-right: 0;
+    border-bottom: 1px solid #eeeeee;
+  }
+
+  .assistant-shell.is-sidebar-collapsed .assistant-sidebar {
+    max-height: 68px;
+  }
+
+  .assistant-sidebar-panel {
+    width: auto;
+  }
+
+  .assistant-shell.is-sidebar-collapsed .assistant-sidebar-panel {
+    transform: translateY(-16px);
+  }
+
+  .workspace-header {
+    height: 52px;
+    padding: 0 14px;
+  }
+
+  .workspace-body,
+  .composer-area {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .workspace-body.is-task {
+    overflow: auto;
+  }
+
+  .workspace-title span {
+    max-width: 180px;
+  }
+
+  .settings-shell {
+    min-height: 0;
+    grid-template-columns: 1fr;
+  }
+
+  .settings-sidebar {
+    padding: 18px;
+  }
+
+  .settings-menu {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-content {
+    padding: 18px;
+  }
+
+  .agent-create-page {
+    padding: 28px 0 52px;
+  }
+
+  .agent-template-card {
+    min-height: 180px;
+    padding: 22px 132px 22px 20px;
+  }
+
+  .agent-template-image {
+    right: 18px;
+    bottom: 18px;
+    width: 96px;
+    height: 96px;
+    border-radius: 24px;
+    font-size: 50px;
+  }
+
+  .file-space-page {
+    padding: 16px;
+  }
+
+  .file-toolbar {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .file-toolbar-actions {
+    justify-content: space-between;
+  }
+
+  .file-list {
+    width: 100%;
+  }
+
+  .file-card {
+    min-height: 76px;
+    padding: 14px;
+  }
+}
