@@ -1,9 +1,17 @@
-import type { ApprovalStatus, Task } from '@xuanzhi/shared/protocol';
+import type { ApprovalStatus, Task, TaskIntent } from '@xuanzhi/shared/protocol';
 
 import type { MemoryStore } from '../repositories/memoryStore.js';
 import type { StreamHub } from '../realtime/streamHub.js';
 
 type TerminalApprovalStatus = Extract<ApprovalStatus, 'approved' | 'rejected'>;
+
+const approvalMessages: Record<TaskIntent, { approve: string; reject: string }> = {
+  meeting: { approve: '已确认创建会议，任务已完成。', reject: '已取消创建会议，任务已结束。' },
+  business: { approve: '已确认执行业务操作，任务已完成。', reject: '已取消业务操作，任务已结束。' },
+  coding: { approve: '已确认代码变更，任务已完成。', reject: '已取消代码变更，任务已结束。' },
+  qa: { approve: '已确认答复，任务已完成。', reject: '已取消答复，任务已结束。' },
+  general: { approve: '已确认执行，任务已完成。', reject: '已取消执行，任务已结束。' },
+};
 
 export function createApprovalService(store: MemoryStore, stream: StreamHub) {
   return {
@@ -58,11 +66,12 @@ export function createApprovalService(store: MemoryStore, stream: StreamHub) {
         });
         stream.broadcast(task.id, { type: 'agent.event.created', data: finalEvent });
 
+        const msg = approvalMessages[task.intent] ?? approvalMessages.general;
         const resultMessage = store.addMessage({
           userId: task.userId,
           taskId: task.id,
           role: 'assistant',
-          content: status === 'approved' ? '已确认创建会议，任务已完成。' : '已拒绝创建会议，任务已取消。',
+          content: status === 'approved' ? msg.approve : msg.reject,
         });
         stream.broadcast(task.id, { type: 'message.created', data: resultMessage });
         stream.broadcast(task.id, { type: 'task.updated', data: task });

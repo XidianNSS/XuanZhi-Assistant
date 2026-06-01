@@ -1,9 +1,12 @@
 // 前后端和插件文档共用的协议单一来源。userId 在业务对象上冗余保存，
 // 是为了让权限校验、列表查询和插件上报归属反查都不依赖前端参数。
+export type UserRole = 'user' | 'admin';
+
 export type User = {
   id: string;
   name: string;
-  email?: string;
+  email: string;
+  role: UserRole;
   createdAt: string;
 };
 
@@ -98,4 +101,26 @@ export type StreamEvent =
 export type LoginResponse = {
   token: string;
   user: User;
+};
+
+export type RegisterInput = {
+  email: string;
+  name: string;
+  password: string;
+};
+
+export type AgentStatus = 'offline' | 'idle' | 'running' | 'error';
+
+export type Agent = {
+  id: string;
+  userId: string;
+  name: string;
+  /** OpenClaw Gateway agent ID (returned by agents.create RPC) */
+  gatewayAgentId: string | null;
+  /** Agent workspace directory on the Gateway host */
+  workspace: string;
+  sessionKey: string;
+  status: AgentStatus;
+  createdAt: string;
+  updatedAt: string;
 };
