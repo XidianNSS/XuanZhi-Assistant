@@ -1,5 +1,4 @@
 import { loadConfig, type AppConfig } from '../config/env.js';
-import { createAgentRuntime } from '../agents/createAgentRuntime.js';
 import { MemoryStore, testUsers } from '../repositories/memoryStore.js';
 import { StreamHub } from '../realtime/streamHub.js';
 import { createAgentService } from '../services/agentService.js';
@@ -13,8 +12,6 @@ import { createTaskService } from '../services/taskService.js';
 export function createAppDependencies(config: AppConfig = loadConfig()) {
   const store = new MemoryStore();
   const stream = new StreamHub();
-  const agentRuntime = createAgentRuntime(config, store, stream);
-
   const agentService = createAgentService(store);
 
   // 为种子用户创建 Agent
@@ -35,7 +32,7 @@ export function createAppDependencies(config: AppConfig = loadConfig()) {
       artifacts: createArtifactService(store, stream),
       auth: createAuthService(store),
       events: createEventService(store, stream),
-      messages: createMessageService(store, stream, agentRuntime),
+      messages: createMessageService(store, stream),
       tasks: createTaskService(store, stream),
     },
   };

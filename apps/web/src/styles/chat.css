@@ -551,3 +551,359 @@
   width: 100%;
   justify-self: auto;
 }
+
+/* ── Plan steps ── */
+
+@keyframes plan-step-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.plan-steps {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0;
+}
+
+.plan-step + .plan-step {
+  border-top: 1px solid #f3f4f6;
+}
+
+/* ── Agent Registration Wizard ── */
+
+.agent-wizard-page {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 40px 20px 60px;
+  overflow-y: auto;
+}
+
+.agent-wizard-inner {
+  width: min(680px, 100%);
+}
+
+.agent-wizard-header {
+  margin-bottom: 28px;
+  text-align: center;
+}
+
+.agent-wizard-header h1 {
+  margin: 0 0 8px;
+  color: #18181b;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.agent-wizard-steps {
+  display: flex;
+  justify-content: center;
+  gap: 48px;
+  margin-bottom: 32px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.agent-wizard-step-dot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #a1a1aa;
+  transition: color 0.2s;
+}
+
+.agent-wizard-step-dot.active {
+  color: #2563eb;
+}
+
+.agent-wizard-step-dot.done {
+  color: #22c55e;
+}
+
+.agent-wizard-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.agent-wizard-step-dot.active .agent-wizard-step-num {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.agent-wizard-step-dot.done .agent-wizard-step-num {
+  background: #22c55e;
+  color: #fff;
+  border-color: #22c55e;
+}
+
+.agent-wizard-step-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.agent-wizard-body {
+  min-height: 320px;
+}
+
+.agent-wizard-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.wizard-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wizard-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.wizard-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #27272a;
+}
+
+.wizard-input {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  background: #fff;
+  color: #18181b;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.wizard-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.wizard-select {
+  appearance: none;
+  cursor: pointer;
+}
+
+.wizard-choice-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wizard-choice-padded {
+  margin-top: 10px;
+}
+
+.wizard-choice-btn {
+  padding: 8px 16px;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  background: #fff;
+  color: #52525b;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.wizard-choice-btn:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.wizard-choice-btn.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.wizard-section {
+  padding-top: 4px;
+}
+
+.wizard-section strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.wizard-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.wizard-chip {
+  padding: 6px 12px;
+  border: 1px solid #e4e4e7;
+  border-radius: 999px;
+  background: #fff;
+  color: #52525b;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.wizard-chip:hover {
+  border-color: #d4d4d8;
+  background: #fafafa;
+}
+
+.wizard-chip.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.agent-wizard-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #f3f4f6;
+}
+
+.wizard-footer-right {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Wizard Summary (confirm step) ── */
+
+.wizard-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.wizard-summary-group {
+  padding: 16px;
+  border: 1px solid #f3f4f6;
+  border-radius: 12px;
+  background: #fafafa;
+}
+
+.wizard-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.wizard-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wizard-summary-label {
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+.wizard-summary-item span:last-child {
+  font-size: 14px;
+  color: #18181b;
+  font-weight: 500;
+}
+
+.wizard-summary-code {
+  display: block;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e4e4e7;
+  font-size: 13px;
+  color: #52525b;
+}
+
+/* ── Agent Profile Panel (settings) ── */
+
+.agent-profile-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.profile-section {
+  padding: 16px;
+  border: 1px solid #f3f4f6;
+  border-radius: 12px;
+  background: #fafafa;
+}
+
+.profile-section h4 {
+  margin-bottom: 12px;
+  color: #18181b;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.profile-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.profile-field + .profile-field {
+  border-top: 1px solid #f3f4f6;
+}
+
+.profile-field-label {
+  font-size: 13px;
+  color: #71717a;
+}
+
+.profile-field-value {
+  font-size: 13px;
+  color: #18181b;
+  font-weight: 500;
+}
+
+.profile-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.profile-chip {
+  display: inline-block;
+  padding: 4px 10px;
+  border: 1px solid #e4e4e7;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 11px;
+  color: #52525b;
+}
+
+/* ── Sidebar: only admin can create new agents ── */
+.new-agent-button-admin {
+  opacity: 1;
+}
+.new-agent-button-hidden {
+  display: none;
+}

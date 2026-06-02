@@ -12,24 +12,47 @@ export function registerAuthRoutes(app: FastifyInstance, dependencies: AppDepend
       return reply.status(400).send({ message: result.error });
     }
 
-    // Create local agent record immediately
+    // Create local agent record. Agent name defaults to a placeholder —
+    // the user will set a proper agent name via the registration wizard.
+    const agentName = `默认助手`;
     const agent = dependencies.services.agents.createAgent(
       result.data.user.id,
-      result.data.user.name,
+      agentName,
     );
 
-    // Best-effort: create Gateway agent in the background
+    // Synchronously create Gateway agent + workspace.
+    // Gateway agent name = xuanzhi agent name (the assistant's identity, not the user's).
     const client = getOpenClawClient();
     if (client.isConnected()) {
-      const workspace = `xuanzhi-agent-${agent.id}`;
-      client.request<{ ok: true; agentId: string; workspace: string }>('agents.create', {
-        name: agent.name,
-        workspace,
-      }).then((created) => {
-        dependencies.store.updateAgentGatewayInfo(agent.id, created.agentId, created.workspace);
-      }).catch((err) => {
-        console.error('[auth] Gateway agent creation failed (will retry on first task):', err.message);
-      });
+      try {
+        const workspace = `xuanzhi-agent-${agent.id}`;
+        const created = await client.request<{
+          ok: true;
+          agentId: string;
+          name: string;
+          workspace: string;
+        }>('agents.create', {
+          name: agent.id,
+          workspace,
+        });
+
+        // Set Gateway agent display name to the assistant name
+        client.request('agents.update', {
+          agentId: created.agentId,
+          name: agentName,
+        }).catch(() => {
+          // best-effort
+        });
+
+        dependencies.store.updateAgentGatewayInfo(
+          agent.id,
+          created.agentId,
+          created.workspace,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error('[auth] Gateway agent + workspace creation failed:', message);
+      }
     }
 
     return reply.status(201).send(result.data);

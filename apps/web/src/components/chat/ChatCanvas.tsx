@@ -4,6 +4,7 @@ import { Bubble } from '@ant-design/x';
 import type { Message } from '../../types/protocol';
 import { MarkdownContent } from './MarkdownContent';
 import { MessageActions } from './MessageActions';
+import { PlanSteps } from './PlanSteps';
 
 const bubbleRoles = {
   assistant: {
@@ -48,7 +49,12 @@ export function ChatCanvas({ messages, onCopyMessage, onEditMessage }: ChatCanva
         role: message.role === 'user' ? 'user' : 'assistant',
         content:
           message.role === 'assistant' ? (
-            <MarkdownContent content={message.content} streaming={message.status === 'streaming'} />
+            <div>
+              {message.planSteps && message.planSteps.length > 0 ? (
+                <PlanSteps steps={message.planSteps} />
+              ) : null}
+              <MarkdownContent content={message.content} streaming={message.status === 'streaming'} />
+            </div>
           ) : (
             message.content
           ),

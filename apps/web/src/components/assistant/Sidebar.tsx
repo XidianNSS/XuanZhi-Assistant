@@ -4,6 +4,7 @@ import { Conversations } from '@ant-design/x';
 import { Avatar, Button, Input, Modal, Text } from '../ui';
 import { Icon } from '../ui/icons';
 import type { Task, User } from '../../types/protocol';
+import { AgentProfilePanel } from './AgentProfilePanel';
 
 type SidebarProps = {
   activeKey?: string;
@@ -57,6 +58,7 @@ const fileCategories = [
 
 const settingsMenuItems = [
   { key: 'general', label: '通用设置', icon: <Icon name="settings" /> },
+  { key: 'agent-profile', label: '智能体配置', icon: <Icon name="tool" /> },
   { key: 'usage', label: '用量统计', icon: <Icon name="check-circle" /> },
   { key: 'skills', label: '技能管理', icon: <Icon name="tool" /> },
   { key: 'remote', label: '远控通道', icon: <Icon name="cloud" /> },
@@ -66,6 +68,9 @@ const settingsMenuItems = [
 
 function SettingsCenter({ currentUser, onLogout }: { currentUser: User; onLogout: () => void }) {
   const [activeSetting, setActiveSetting] = useState('general');
+  const isAdmin = currentUser.role === 'admin';
+
+  const activeLabel = settingsMenuItems.find((m) => m.key === activeSetting)?.label ?? '通用设置';
 
   return (
     <div className="settings-shell">
@@ -90,62 +95,69 @@ function SettingsCenter({ currentUser, onLogout }: { currentUser: User; onLogout
 
       <section className="settings-content">
         <div className="settings-content-header">
-          <Text strong>通用设置</Text>
+          <Text strong>{activeLabel}</Text>
         </div>
 
-        <div className="settings-card">
-          <div className="settings-row">
-            <Text strong>头像</Text>
-            <Avatar size={42} icon={<Icon name="user" />} />
-          </div>
-          <div className="settings-row">
-            <Text strong>用户名</Text>
-            <span className="settings-user-badge">
-              <Icon name="check-circle" />
-              {currentUser.name}
-            </span>
-          </div>
-          <div className="settings-row">
-            <Text strong>外观</Text>
-            <button className="settings-select" type="button">
-              浅色模式
-              <Icon name="chevron-right-panel" />
-            </button>
-          </div>
-          <div className="settings-row is-stacked">
-            <div className="settings-row-title">
-              <Text strong>字体大小</Text>
-              <Text type="secondary">中</Text>
+        {activeSetting === 'agent-profile' ? (
+          <AgentProfilePanel currentUserId={currentUser.id} isAdmin={isAdmin} />
+        ) : (
+          <>
+            <div className="settings-card">
+              <div className="settings-row">
+                <Text strong>头像</Text>
+                <Avatar size={42} icon={<Icon name="user" />} />
+              </div>
+              <div className="settings-row">
+                <Text strong>用户名</Text>
+                <span className="settings-user-badge">
+                  <Icon name="check-circle" />
+                  {currentUser.name}
+                </span>
+              </div>
+              <div className="settings-row">
+                <Text strong>外观</Text>
+                <button className="settings-select" type="button">
+                  浅色模式
+                  <Icon name="chevron-right-panel" />
+                </button>
+              </div>
+              <div className="settings-row is-stacked">
+                <div className="settings-row-title">
+                  <Text strong>字体大小</Text>
+                  <Text type="secondary">中</Text>
+                </div>
+                <div className="settings-slider" aria-hidden="true">
+                  <span />
+                </div>
+                <div className="settings-scale">
+                  <span>小</span>
+                  <span>中</span>
+                  <span>大</span>
+                </div>
+              </div>
             </div>
-            <div className="settings-slider" aria-hidden="true">
-              <span />
-            </div>
-            <div className="settings-scale">
-              <span>小</span>
-              <span>中</span>
-              <span>大</span>
-            </div>
-          </div>
-        </div>
 
-        <div className="settings-switch-list">
-          {[
-            ['龙虾管家', '开启后可实时保护 AI 安全，防范漏洞攻击、拦截恶意指令。'],
-            ['休眠阻止', '开启后，电脑不会进入休眠模式，玄知助手会保持活跃状态。'],
-            ['云端同步', 'AI 生成的文件将自动同步至云端，方便跨设备访问和备份。'],
-            ['高级功能设置', '高级功能使用过程中会带来额外 Token 消耗。'],
-          ].map(([title, description]) => (
-            <div className="settings-switch-row" key={title}>
-              <span>
-                <Text strong>{title}</Text>
-                <Text type="secondary">{description}</Text>
-              </span>
-              <button className="settings-switch is-on" type="button" aria-pressed="true">
-                <span />
-              </button>
+            <div className="settings-switch-list">
+              {[
+                ['龙虾管家', '开启后可实时保护 AI 安全，防范漏洞攻击、拦截恶意指令。'],
+                ['休眠阻止', '开启后，电脑不会进入休眠模式，玄知助手会保持活跃状态。'],
+                ['云端同步', 'AI 生成的文件将自动同步至云端，方便跨设备访问和备份。'],
+                ['高级功能设置', '高级功能使用过程中会带来额外 Token 消耗。'],
+              ].map(([title, description]) => (
+                <div className="settings-switch-row" key={title}>
+                  <span>
+                    <Text strong>{title}</Text>
+                    <Text type="secondary">{description}</Text>
+                  </span>
+                  <button className="settings-switch is-on" type="button" aria-pressed="true">
+                    <span />
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        )}
+
         <Button type="text" className="settings-logout-button" onClick={onLogout}>
           退出当前账号
         </Button>
@@ -274,9 +286,11 @@ export function Sidebar({
           <>
             <Input className="sidebar-search" prefix={<Icon name="search" />} placeholder="搜索" aria-label="搜索会话" />
 
-            <Button icon={<Icon name="plus" />} className="new-chat-button" onClick={onCreateAgent}>
-              新建 Agent
-            </Button>
+            {currentUser.role === 'admin' && (
+              <Button icon={<Icon name="plus" />} className="new-chat-button" onClick={onCreateAgent}>
+                新建 Agent
+              </Button>
+            )}
 
             <div className="agent-list" aria-label="Agent 列表" data-has-active-task={hasActiveTask ? 'true' : 'false'}>
               {agentItems.map((agent) => {

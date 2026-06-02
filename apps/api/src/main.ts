@@ -1,10 +1,19 @@
 import { buildApp } from './app.js';
+import { loadConfig, loadRuntimeEnv } from './config/env.js';
 import { getOpenClawClient } from './agents/openclawClient.js';
 
 const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? '127.0.0.1';
 
-// 启动 OpenClaw Gateway 持久连接（非阻塞，Gateway 离线不影响 API 启动）
+// Load config and configure the OpenClaw client before starting
+const config = loadConfig(loadRuntimeEnv());
+getOpenClawClient().configure({
+  wsUrl: config.openclaw.wsUrl,
+  password: config.openclaw.password,
+  requestTimeoutMs: config.openclaw.requestTimeoutMs,
+});
+
+// Start OpenClaw Gateway persistence connection (non-blocking)
 getOpenClawClient().start();
 
 const app = buildApp();

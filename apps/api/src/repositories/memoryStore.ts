@@ -13,6 +13,7 @@ import type {
   ArtifactType,
   AuthSession,
   Message,
+  MessagePlanStep,
   Task,
   TaskIntent,
   TaskStatus,
@@ -193,7 +194,7 @@ export class MemoryStore {
     return message;
   }
 
-  updateMessage(taskId: string, messageId: string, input: { content?: string; status?: Message['status'] }) {
+  updateMessage(taskId: string, messageId: string, input: { content?: string; status?: Message['status']; planSteps?: MessagePlanStep[] }) {
     const messages = this.messages.get(taskId);
     if (!messages) {
       return undefined;
@@ -208,6 +209,7 @@ export class MemoryStore {
       ...current,
       content: input.content ?? current.content,
       status: input.status ?? current.status,
+      planSteps: input.planSteps ?? current.planSteps,
     };
     this.messages.set(
       taskId,
@@ -328,7 +330,15 @@ export class MemoryStore {
 
   // ── Agent ──
 
-  createAgent(input: { userId: string; name: string; gatewayAgentId?: string; workspace?: string }) {
+  createAgent(input: {
+    userId: string;
+    name: string;
+    gatewayAgentId?: string;
+    workspace?: string;
+    profile?: Agent['profile'];
+    emoji?: string;
+    model?: string;
+  }) {
     const id = `agent_${randomUUID()}`;
     const agent: Agent = {
       id,
@@ -338,11 +348,22 @@ export class MemoryStore {
       workspace: input.workspace ?? '',
       sessionKey: `xuanzhi:session:${id}`,
       status: 'offline',
+      profile: input.profile ?? null,
+      emoji: input.emoji,
+      model: input.model,
       createdAt: nowIso(),
       updatedAt: nowIso(),
     };
     this.agents.set(id, agent);
     return agent;
+  }
+
+  updateAgentProfile(agentId: string, profile: Agent['profile']) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return undefined;
+    const updated: Agent = { ...agent, profile, updatedAt: nowIso() };
+    this.agents.set(agentId, updated);
+    return updated;
   }
 
   updateAgentGatewayInfo(agentId: string, gatewayAgentId: string, workspace: string) {

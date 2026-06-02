@@ -9,7 +9,8 @@ import type { AuthMode } from '../../types/chat';
 
 type AuthScreenProps = {
   loading?: boolean;
-  onAuthenticated: (values: { email: string; password: string }) => Promise<void>;
+  onLogin: (values: { email: string; password: string }) => Promise<void>;
+  onRegister: (values: { email: string; name: string; password: string }) => Promise<void>;
 };
 
 const initialForm = {
@@ -19,7 +20,7 @@ const initialForm = {
   password: 'dev-password',
 };
 
-export function AuthScreen({ loading, onAuthenticated }: AuthScreenProps) {
+export function AuthScreen({ loading, onLogin, onRegister }: AuthScreenProps) {
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [formValues, setFormValues] = useState(initialForm);
 
@@ -38,10 +39,18 @@ export function AuthScreen({ loading, onAuthenticated }: AuthScreenProps) {
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void onAuthenticated({
-      email: formValues.email,
-      password: formValues.password,
-    });
+    if (authMode === 'register') {
+      void onRegister({
+        email: formValues.email,
+        name: formValues.name,
+        password: formValues.password,
+      });
+    } else {
+      void onLogin({
+        email: formValues.email,
+        password: formValues.password,
+      });
+    }
   };
 
   return (

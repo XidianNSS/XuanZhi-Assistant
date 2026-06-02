@@ -3,12 +3,11 @@ import { dirname, join, parse } from 'node:path';
 
 export type AppConfig = {
   serviceToken: string;
-  agentRuntime: 'mock' | 'direct';
-  directModel?: {
-    baseUrl: string;
-    apiKey: string;
-    model: string;
-    timeoutMs: number;
+  openclaw: {
+    wsUrl: string;
+    password?: string;
+    requestTimeoutMs: number;
+    autoRegisterPlugin: boolean;
   };
 };
 
@@ -63,52 +62,23 @@ function optionalEnv(env: Env, key: string) {
   return value || undefined;
 }
 
-function normalizeAgentRuntime(value: string | undefined): AppConfig['agentRuntime'] {
-  if (!value) {
-    return 'mock';
-  }
-  if (value === 'mock' || value === 'direct') {
-    return value;
-  }
-  throw new Error('XUANZHI_AGENT_RUNTIME must be "mock" or "direct"');
-}
-
 function normalizeTimeoutMs(value: string | undefined) {
   const timeoutMs = Number(value ?? 30000);
   return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 30000;
 }
 
 export function loadConfig(env: Env = loadRuntimeEnv()): AppConfig {
-  const agentRuntime = normalizeAgentRuntime(optionalEnv(env, 'XUANZHI_AGENT_RUNTIME'));
-  const baseUrl = optionalEnv(env, 'XUANZHI_MODEL_BASE_URL');
-  const apiKey = optionalEnv(env, 'XUANZHI_MODEL_API_KEY');
-  const model = optionalEnv(env, 'XUANZHI_MODEL_NAME');
-
-  if (agentRuntime === 'direct') {
-    const missing = [
-      ['XUANZHI_MODEL_BASE_URL', baseUrl],
-      ['XUANZHI_MODEL_API_KEY', apiKey],
-      ['XUANZHI_MODEL_NAME', model],
-    ]
-      .filter(([, value]) => !value)
-      .map(([key]) => key);
-
-    if (missing.length > 0) {
-      throw new Error(`XUANZHI_AGENT_RUNTIME=direct requires ${missing.join(', ')}`);
-    }
-  }
+  const wsUrl = optionalEnv(env, 'OPENCLAW_WS_URL') ?? 'ws://127.0.0.1:18789';
+  const password = optionalEnv(env, 'OPENCLAW_PASSWORD');
+  const autoRegisterPlugin = optionalEnv(env, 'OPENCLAW_AUTO_REGISTER_PLUGIN') !== 'false';
 
   return {
     serviceToken: optionalEnv(env, 'XUANZHI_API_TOKEN') ?? 'dev-token',
-    agentRuntime,
-    directModel:
-      baseUrl && apiKey && model
-        ? {
-            baseUrl,
-            apiKey,
-            model,
-            timeoutMs: normalizeTimeoutMs(optionalEnv(env, 'XUANZHI_MODEL_TIMEOUT_MS')),
-          }
-        : undefined,
+    openclaw: {
+      wsUrl,
+      password,
+      requestTimeoutMs: normalizeTimeoutMs(optionalEnv(env, 'OPENCLAW_REQUEST_TIMEOUT')),
+      autoRegisterPlugin,
+    },
   };
 }

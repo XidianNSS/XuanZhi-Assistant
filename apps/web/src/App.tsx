@@ -60,6 +60,20 @@ function App() {
     }
   }, []);
 
+  const register = useCallback(async (values: { email: string; name: string; password: string }) => {
+    setAuthLoading(true);
+    try {
+      const response = await authApi.register(values);
+      persistLogin(response);
+      setToken(response.token);
+      setCurrentUser(response.user);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '注册失败');
+    } finally {
+      setAuthLoading(false);
+    }
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await authApi.logout();
@@ -90,7 +104,7 @@ function App() {
       ) : currentUser && token ? (
         <AssistantShell currentUser={currentUser} token={token} onLogout={logout} />
       ) : (
-        <AuthScreen loading={authLoading} onAuthenticated={login} />
+        <AuthScreen loading={authLoading} onLogin={login} onRegister={register} />
       )}
       <Toaster />
     </XProvider>

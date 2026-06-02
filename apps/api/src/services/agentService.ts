@@ -1,11 +1,16 @@
-import type { AgentStatus } from '@xuanzhi/shared/protocol';
+import type { Agent, AgentStatus } from '@xuanzhi/shared/protocol';
 
 import type { MemoryStore } from '../repositories/memoryStore.js';
 
 export function createAgentService(store: MemoryStore) {
   return {
-    createAgent(userId: string, name: string) {
-      return store.createAgent({ userId, name });
+    createAgent(userId: string, name: string, opts?: {
+      profile?: Agent['profile'];
+      emoji?: string;
+      model?: string;
+      workspace?: string;
+    }) {
+      return store.createAgent({ userId, name, ...opts });
     },
 
     getAgent(agentId: string) {
@@ -32,6 +37,10 @@ export function createAgentService(store: MemoryStore) {
 
     updateAgentStatus(agentId: string, status: AgentStatus) {
       return store.updateAgentStatus(agentId, status);
+    },
+
+    updateAgentProfile(agentId: string, profile: Agent['profile']) {
+      return store.updateAgentProfile(agentId, profile);
     },
   };
 }

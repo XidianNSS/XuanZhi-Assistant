@@ -24,6 +24,12 @@ export type TaskIntent = 'meeting' | 'business' | 'coding' | 'qa' | 'general';
 
 export type MessageStatus = 'streaming' | 'completed' | 'failed';
 
+export type MessagePlanStep = {
+  id: string;
+  text: string;
+  status: 'pending' | 'running' | 'done' | 'error';
+};
+
 export type Task = {
   id: string;
   userId: string;
@@ -42,6 +48,8 @@ export type Message = {
   role: 'user' | 'assistant' | 'system';
   content: string;
   status?: MessageStatus;
+  planSteps?: MessagePlanStep[];
+  planFooter?: string;
   createdAt: string;
 };
 
@@ -94,6 +102,7 @@ export type StreamEvent =
   | { type: 'message.created'; data: Message }
   | { type: 'message.updated'; data: Message }
   | { type: 'agent.event.created'; data: AgentEvent }
+  | { type: 'agent.event.updated'; data: AgentEvent }
   | { type: 'artifact.created'; data: Artifact }
   | { type: 'approval.requested'; data: Approval }
   | { type: 'approval.updated'; data: Approval };
@@ -111,6 +120,41 @@ export type RegisterInput = {
 
 export type AgentStatus = 'offline' | 'idle' | 'running' | 'error';
 
+export type AgentAccessRole = 'admin' | 'user';
+
+export type AgentIdentity = {
+  displayName: string;
+  role: string;
+  organization?: string;
+  researchFields?: string[];
+  experience?: 'beginner' | 'intermediate' | 'expert';
+};
+
+export type AgentRequirements = {
+  tone?: '严谨学术' | '工程务实' | '简洁高效';
+  depth?: '快速概览' | '标准分析' | '深度研究';
+  language?: 'zh-CN' | 'en';
+  autoMode?: boolean;
+  expertDomains?: string[];
+  notificationPrefs?: {
+    wechat?: boolean;
+    email?: boolean;
+  };
+};
+
+export type XuanzhiAgentProfile = {
+  version: 1;
+  /** The agent/assistant name — how this agent appears in the UI */
+  agentName: string;
+  /** The human user's identity (separate from agent name) */
+  identity: AgentIdentity;
+  requirements: AgentRequirements;
+  access: {
+    role: AgentAccessRole;
+    isolatedWorkspace: boolean;
+  };
+};
+
 export type Agent = {
   id: string;
   userId: string;
@@ -121,6 +165,10 @@ export type Agent = {
   workspace: string;
   sessionKey: string;
   status: AgentStatus;
+  /** Extended profile stored as xuanzhi-profile.json in workspace */
+  profile?: XuanzhiAgentProfile | null;
+  emoji?: string;
+  model?: string;
   createdAt: string;
   updatedAt: string;
 };
