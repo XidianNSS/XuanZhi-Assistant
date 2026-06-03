@@ -3,6 +3,8 @@ import type { Agent, AgentStatus } from '@xuanzhi/shared/protocol';
 
 import type { AppDependencies } from '../app/dependencies.js';
 import { getOpenClawClient } from '../agents/openclawClient.js';
+import { syncAgentProfileFiles } from '../agents/profileFiles.js';
+import { createXuanzhiWorkspacePath } from '../agents/workspace.js';
 import { requireUserAuth } from '../http/taskGuards.js';
 import { isAgentStatus } from '../schemas/protocolValidators.js';
 
@@ -16,16 +18,7 @@ async function syncAgentProfileToGateway(agent: Agent) {
     if (!client.isConnected()) {
       await client.connect();
     }
-    await client.request('agents.update', {
-      agentId: agent.gatewayAgentId,
-      name: agent.profile.agentName || agent.name,
-      emoji: agent.emoji,
-    });
-    await client.request('agents.files.set', {
-      agentId: agent.gatewayAgentId,
-      name: 'xuanzhi-profile.json',
-      content: JSON.stringify(agent.profile, null, 2),
-    });
+    await syncAgentProfileFiles(client, agent);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[agents] Gateway profile sync failed:', message);
@@ -60,7 +53,7 @@ export function registerAgentRoutes(app: FastifyInstance, dependencies: AppDepen
     const agent = dependencies.services.agents.createAgent(
       auth.user.id,
       agentName,
-      { profile, emoji: body.emoji, model: body.model },
+      { profile, emoji: body.emoji, model: body.model, workspace: createXuanzhiWorkspacePath(auth.user.id) },
     );
     return reply.status(201).send(agent);
   });
@@ -68,9 +61,6 @@ export function registerAgentRoutes(app: FastifyInstance, dependencies: AppDepen
   app.get('/api/agents', async (request, reply) => {
     const auth = requireUserAuth(request, reply, dependencies);
     if (!auth) return;
-    if (auth.user.role === 'admin') {
-      return dependencies.services.agents.listAllAgents();
-    }
     return dependencies.services.agents.listAgentsForUser(auth.user.id);
   });
 

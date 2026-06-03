@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { FastifyInstance } from 'fastify';
-import type { AgentEvent, LoginResponse, Message, Task, TaskIntent } from '@xuanzhi/shared/protocol';
+import type { AgentEvent, LoginResponse, Message, Task, TaskIntent, XuanzhiAgentProfile } from '@xuanzhi/shared/protocol';
 
 const gateway = vi.hoisted(() => {
   type Handler = (payload: unknown) => void;
@@ -9,6 +9,7 @@ const gateway = vi.hoisted(() => {
   const handlers = new Map<string, Set<Handler>>();
   const calls: Array<{ method: string; params?: unknown }> = [];
   let agentSequence = 0;
+  let shouldFailProfileWrites = false;
 
   const emit = (event: string, payload: unknown) => {
     for (const handler of handlers.get(event) ?? []) {
@@ -39,6 +40,10 @@ const gateway = vi.hoisted(() => {
           name: `gateway-agent-${agentSequence}`,
           workspace: input.workspace ?? `workspace-${agentSequence}`,
         };
+      }
+
+      if (method === 'agents.files.set' && shouldFailProfileWrites) {
+        throw new Error('profile write failed');
       }
 
       if (method === 'agents.update' || method === 'agents.files.set') {
@@ -109,11 +114,15 @@ const gateway = vi.hoisted(() => {
       calls.length = 0;
       handlers.clear();
       agentSequence = 0;
+      shouldFailProfileWrites = false;
       client.isConnected.mockClear();
       client.connect.mockClear();
       client.request.mockClear();
       client.on.mockClear();
       client.getConnectionStatus.mockClear();
+    },
+    failProfileWrites() {
+      shouldFailProfileWrites = true;
     },
   };
 });
@@ -123,6 +132,7 @@ vi.mock('../src/agents/openclawClient.js', () => ({
 }));
 
 const { buildApp } = await import('../src/app.js');
+const { createXuanzhiWorkspacePath } = await import('../src/agents/workspace.js');
 
 async function login(app: FastifyInstance, email: string) {
   const response = await app.inject({
@@ -179,6 +189,30 @@ async function sendUserMessage(app: FastifyInstance, token: string, taskId: stri
   return response.json<Message>();
 }
 
+const testProfile: XuanzhiAgentProfile = {
+  version: 1,
+  agentName: '张三的玄知助理',
+  identity: {
+    displayName: '张三',
+    role: '密评工程师',
+    organization: '玄知实验室',
+    researchFields: ['密评合规', 'SM 系列算法'],
+    experience: 'expert',
+  },
+  requirements: {
+    tone: '工程务实',
+    depth: '深度研究',
+    language: 'zh-CN',
+    autoMode: true,
+    expertDomains: ['密码协议'],
+    notificationPrefs: { wechat: true, email: false },
+  },
+  access: {
+    role: 'user',
+    isolatedWorkspace: true,
+  },
+};
+
 async function waitForCondition(assertion: () => void | Promise<void>) {
   let lastError: unknown;
   for (let index = 0; index < 30; index += 1) {
@@ -211,7 +245,7 @@ describe('xuanzhi api with OpenClaw Gateway', () => {
 
     expect(agent).toMatchObject({
       userId: user.id,
-      workspace: `xuanzhi-user-${user.id}`,
+      workspace: createXuanzhiWorkspacePath(user.id),
     });
 
     const meResponse = await app.inject({
@@ -234,7 +268,7 @@ describe('xuanzhi api with OpenClaw Gateway', () => {
     });
   });
 
-  it('creates an OpenClaw-backed agent and workspace during registration', async () => {
+  it('creates an isolated local agent during registration and defers Gateway creation', async () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
@@ -249,11 +283,11 @@ describe('xuanzhi api with OpenClaw Gateway', () => {
     const body = response.json<LoginResponse>();
     expect(body.agent).toMatchObject({
       userId: body.user.id,
-      gatewayAgentId: 'gateway-agent-1',
-      workspace: `xuanzhi-user-${body.user.id}`,
+      gatewayAgentId: null,
+      workspace: createXuanzhiWorkspacePath(body.user.id),
     });
-    expect(gateway.calls.some((call) => call.method === 'agents.create')).toBe(true);
-    expect(gateway.calls.some((call) => call.method === 'agents.update')).toBe(true);
+    expect(gateway.calls.some((call) => call.method === 'agents.create')).toBe(false);
+    expect(gateway.calls.some((call) => call.method === 'agents.update')).toBe(false);
   });
 
   it('binds tasks to currentUser and keeps task lists isolated', async () => {
@@ -297,8 +331,50 @@ describe('xuanzhi api with OpenClaw Gateway', () => {
     expect(forbiddenDetail.statusCode).toBe(404);
   });
 
+  it('keeps user agent lists isolated between accounts', async () => {
+    const userA = await login(app, 'user-a@example.com');
+    const userB = await login(app, 'user-b@example.com');
+
+    const [agentsAResponse, agentsBResponse] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: '/api/agents',
+        headers: { authorization: `Bearer ${userA.token}` },
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/api/agents',
+        headers: { authorization: `Bearer ${userB.token}` },
+      }),
+    ]);
+
+    expect(agentsAResponse.statusCode).toBe(200);
+    expect(agentsBResponse.statusCode).toBe(200);
+
+    const agentsA = agentsAResponse.json<LoginResponse['agent'][]>();
+    const agentsB = agentsBResponse.json<LoginResponse['agent'][]>();
+
+    expect(agentsA).toHaveLength(1);
+    expect(agentsB).toHaveLength(1);
+    expect(agentsA[0]).toMatchObject({
+      userId: userA.user.id,
+      workspace: createXuanzhiWorkspacePath(userA.user.id),
+    });
+    expect(agentsB[0]).toMatchObject({
+      userId: userB.user.id,
+      workspace: createXuanzhiWorkspacePath(userB.user.id),
+    });
+    expect(agentsA[0]?.id).not.toBe(agentsB[0]?.id);
+  });
+
   it('dispatches user messages to OpenClaw sessions and stores the assistant reply', async () => {
     const userA = await login(app, 'user-a@example.com');
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/agents/${userA.agent?.id}/profile`,
+      headers: { authorization: `Bearer ${userA.token}` },
+      payload: { profile: testProfile },
+    });
     const task = await createTask(app, userA.token, 'Explain the uploaded notes');
 
     await sendUserMessage(app, userA.token, task.id, task.userInput);
@@ -329,8 +405,18 @@ describe('xuanzhi api with OpenClaw Gateway', () => {
     const events = eventsResponse.json<AgentEvent[]>();
 
     expect(gateway.calls.map((call) => call.method)).toEqual(
-      expect.arrayContaining(['agents.create', 'sessions.create', 'chat.send']),
+      expect.arrayContaining(['agents.create', 'agents.files.set', 'sessions.create', 'chat.send']),
     );
+    const fileSetCalls = gateway.calls.filter((call) => call.method === 'agents.files.set');
+    expect(fileSetCalls.map((call) => (call.params as { name: string }).name)).toEqual(
+      expect.arrayContaining(['USER.md', 'AGENTS.md']),
+    );
+    expect(JSON.stringify(fileSetCalls.map((call) => call.params))).toContain('张三');
+    expect(JSON.stringify(fileSetCalls.map((call) => call.params))).toContain('密评工程师');
+    const chatSendCall = gateway.calls.find((call) => call.method === 'chat.send');
+    expect(chatSendCall?.params).toMatchObject({
+      message: 'Explain the uploaded notes',
+    });
     expect(messages.map((message) => message.role)).toEqual(['user', 'assistant']);
     expect(messages.at(-1)).toMatchObject({
       role: 'assistant',
@@ -338,6 +424,48 @@ describe('xuanzhi api with OpenClaw Gateway', () => {
     });
     expect(messages.at(-1)?.content).toContain('Explain the uploaded notes');
     expect(events.map((event) => event.type)).toContain('agent.answer.created');
+  });
+
+  it('continues chat when profile file sync fails', async () => {
+    gateway.failProfileWrites();
+    const userA = await login(app, 'user-a@example.com');
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/agents/${userA.agent?.id}/profile`,
+      headers: { authorization: `Bearer ${userA.token}` },
+      payload: { profile: testProfile },
+    });
+    const task = await createTask(app, userA.token, 'Continue even if profile sync fails');
+
+    await sendUserMessage(app, userA.token, task.id, task.userInput);
+
+    await waitForCondition(async () => {
+      const taskResponse = await app.inject({
+        method: 'GET',
+        url: `/api/tasks/${task.id}`,
+        headers: { authorization: `Bearer ${userA.token}` },
+      });
+      expect(taskResponse.json<Task>().status).toBe('completed');
+    });
+
+    const [messagesResponse, eventsResponse] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: `/api/tasks/${task.id}/messages`,
+        headers: { authorization: `Bearer ${userA.token}` },
+      }),
+      app.inject({
+        method: 'GET',
+        url: `/api/tasks/${task.id}/events`,
+        headers: { authorization: `Bearer ${userA.token}` },
+      }),
+    ]);
+
+    expect(messagesResponse.json<Message[]>().at(-1)?.content).toContain('Continue even if profile sync fails');
+    expect(eventsResponse.json<AgentEvent[]>().map((event) => event.type)).toEqual(
+      expect.arrayContaining(['agent.profile.sync_skipped', 'agent.answer.created']),
+    );
+    expect(gateway.calls.map((call) => call.method)).toContain('chat.send');
   });
 
   it('reuses the user agent for follow-up messages', async () => {

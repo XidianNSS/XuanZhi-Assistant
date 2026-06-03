@@ -16,6 +16,19 @@ export class ApiError extends Error {
   }
 }
 
+function parseErrorMessage(text: string, fallback: string) {
+  if (!text) return fallback;
+  try {
+    const data = JSON.parse(text) as { message?: unknown };
+    if (typeof data.message === 'string' && data.message.trim()) {
+      return data.message;
+    }
+  } catch {
+    // Plain text responses are also valid error payloads.
+  }
+  return text;
+}
+
 export async function authFetch<T>(path: string, init: RequestInit = {}) {
   const token = getAuthToken();
   const headers = new Headers(init.headers);
@@ -27,14 +40,22 @@ export async function authFetch<T>(path: string, init: RequestInit = {}) {
     headers.set('authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(apiUrl(path), {
-    ...init,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(apiUrl(path), {
+      ...init,
+      headers,
+    });
+  } catch (error) {
+    throw new ApiError(
+      '玄知后端暂时不可用，请先启动后端服务，或检查 127.0.0.1:3000 是否可访问。',
+      0,
+    );
+  }
 
   if (!response.ok) {
     const text = await response.text();
-    throw new ApiError(text || response.statusText, response.status);
+    throw new ApiError(parseErrorMessage(text, response.statusText), response.status);
   }
 
   if (response.status === 204) {

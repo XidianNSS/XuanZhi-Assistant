@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 
 import { getOpenClawClient } from '../agents/openclawClient.js';
+import { listOpenClawAgents, listOpenClawSessions, listOpenClawTools } from '../agents/openclawNative.js';
 
 export function registerGatewayRoutes(app: FastifyInstance) {
   const client = getOpenClawClient();
@@ -26,7 +27,7 @@ export function registerGatewayRoutes(app: FastifyInstance) {
     if (!client.isConnected()) {
       return { ok: false, message: 'Gateway 未连接' };
     }
-    return client.request('agents.list');
+    return { agents: await listOpenClawAgents() };
   });
 
   // ── Gateway sessions ──
@@ -35,7 +36,7 @@ export function registerGatewayRoutes(app: FastifyInstance) {
     if (!client.isConnected()) {
       return { ok: false, message: 'Gateway 未连接' };
     }
-    return client.request('sessions.list');
+    return { sessions: await listOpenClawSessions() };
   });
 
   // ── Registered tools (from plugins) ──
@@ -44,7 +45,7 @@ export function registerGatewayRoutes(app: FastifyInstance) {
     if (!client.isConnected()) {
       return { ok: false, message: 'Gateway 未连接' };
     }
-    return client.request('tools.catalog');
+    return { tools: await listOpenClawTools() };
   });
 
   // ── Skill marketplace ──

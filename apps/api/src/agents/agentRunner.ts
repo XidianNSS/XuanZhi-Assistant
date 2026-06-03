@@ -1,8 +1,10 @@
-import type { AgentEventStatus, MessagePlanStep, MessageStatus, Task } from '@xuanzhi/shared/protocol';
+import type { Agent, AgentEventStatus, MessagePlanStep, MessageStatus, Task } from '@xuanzhi/shared/protocol';
 
 import type { MemoryStore } from '../repositories/memoryStore.js';
 import type { StreamHub } from '../realtime/streamHub.js';
 import { getOpenClawClient } from './openclawClient.js';
+import { syncAgentProfileFiles } from './profileFiles.js';
+import { createXuanzhiWorkspacePath } from './workspace.js';
 
 // ── Types ──
 
@@ -30,10 +32,14 @@ type GatewayAgentEvent = {
 
 type AgentHandle = {
   id: string;
+  userId: string;
   name: string;
   gatewayAgentId: string | null;
   sessionKey: string;
   workspace: string;
+  profile?: Agent['profile'];
+  emoji?: string;
+  model?: string;
 };
 
 const ASSISTANT_RESPONSE_TIMEOUT = 120_000;
@@ -97,6 +103,30 @@ function extractChatText(payload: ChatEventPayload): string | null {
 // ── Agent helpers factory ──
 
 type AgentHelpers = ReturnType<typeof createAgentHelpers>;
+
+async function syncProfileFilesSafely(
+  client: ReturnType<typeof getOpenClawClient>,
+  agent: AgentHandle,
+  helpers: AgentHelpers,
+) {
+  if (!agent.profile || !agent.gatewayAgentId) {
+    return;
+  }
+
+  try {
+    await syncAgentProfileFiles(client, agent);
+    helpers.publishEvent('agent.profile.synced', 'Agent 配置已同步到 OpenClaw', 'success');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[agents] profile sync skipped:', message);
+    helpers.publishEvent(
+      'agent.profile.sync_skipped',
+      'Agent 配置同步失败，已继续执行对话',
+      'error',
+      message,
+    );
+  }
+}
 
 function createAgentHelpers(task: Task, store: MemoryStore, stream: StreamHub) {
   const publishTaskStatus = (status: Task['status']) => {
@@ -186,6 +216,7 @@ async function ensureGatewayAgent(
   helpers: AgentHelpers,
 ): Promise<string> {
   if (agent.gatewayAgentId) {
+    await syncProfileFilesSafely(client, agent, helpers);
     return agent.gatewayAgentId;
   }
 
@@ -198,7 +229,10 @@ async function ensureGatewayAgent(
       a.name === agent.id || a.workspace === agent.workspace,
     );
     if (existing?.id) {
-      store.updateAgentGatewayInfo(agent.id, existing.id, existing.workspace ?? '');
+      const updated = store.updateAgentGatewayInfo(agent.id, existing.id, existing.workspace ?? '');
+      if (updated) {
+        await syncProfileFilesSafely(client, updated, helpers);
+      }
       helpers.publishEvent(
         'agent.found',
         `Gateway Agent 已存在: ${existing.id}`,
@@ -217,7 +251,7 @@ async function ensureGatewayAgent(
   );
 
   // Use agent.id (UUID) as the name to guarantee uniqueness
-  const workspace = agent.workspace || `xuanzhi-agent-${agent.id}`;
+  const workspace = agent.workspace || createXuanzhiWorkspacePath(agent.userId);
   try {
     const created = await client.request<{
       ok: true;
@@ -229,13 +263,17 @@ async function ensureGatewayAgent(
       workspace,
     });
 
-    store.updateAgentGatewayInfo(agent.id, created.agentId, created.workspace);
+    const updated = store.updateAgentGatewayInfo(agent.id, created.agentId, created.workspace);
 
     // Update display name
-    client.request('agents.update', {
-      agentId: created.agentId,
-      name: agent.name,
-    }).catch(() => {});
+    if (updated?.profile) {
+      await syncProfileFilesSafely(client, updated, helpers);
+    } else {
+      client.request('agents.update', {
+        agentId: created.agentId,
+        name: agent.name,
+      }).catch(() => {});
+    }
 
     helpers.publishEvent(
       'agent.created',
@@ -538,10 +576,7 @@ export async function runOpenClawSession(
     }
 
     // 4. Send message to the Gateway agent
-    const dispatchContent = isFollowup
-      ? content
-      : [`[任务ID: ${task.id}]`, `[任务意图: ${task.intent}]`, '', task.userInput].join('\n');
-
+    const dispatchContent = content;
     const idempotencyKey = isFollowup
       ? `followup-${task.id}-${Date.now()}`
       : `task-${task.id}`;

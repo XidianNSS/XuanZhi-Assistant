@@ -2,11 +2,12 @@ import Fastify from 'fastify';
 
 import { createAppDependencies } from './app/dependencies.js';
 import { registerRoutes } from './app/registerRoutes.js';
+import type { AppConfig } from './config/env.js';
 import { registerCors } from './http/cors.js';
 
-export function buildApp() {
+export function buildApp(config?: AppConfig) {
   const app = Fastify({ logger: false });
-  const dependencies = createAppDependencies();
+  const dependencies = createAppDependencies(config);
 
   registerCors(app);
   registerRoutes(app, dependencies);

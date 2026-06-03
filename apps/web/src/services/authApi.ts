@@ -25,3 +25,7 @@ export function logout() {
     method: 'POST',
   });
 }
+
+export function gatewayStatus() {
+  return authFetch<{ status: string; health: string; lastError: string | null }>('/api/gateway/status');
+}

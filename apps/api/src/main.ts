@@ -17,10 +17,10 @@ getOpenClawClient().configure({
   scopes: config.openclaw.scopes,
 });
 
-// Start OpenClaw Gateway persistence connection (non-blocking)
+// Start the persistent OpenClaw Gateway connection (non-blocking)
 getOpenClawClient().start();
 
-const app = buildApp();
+const app = buildApp(config);
 
 await app.listen({ host, port });
 console.log(`Xuanzhi API listening on http://${host}:${port}`);

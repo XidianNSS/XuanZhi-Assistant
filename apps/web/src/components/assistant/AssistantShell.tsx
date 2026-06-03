@@ -34,6 +34,7 @@ function getStreamEventTaskId(event: StreamEvent) {
 }
 
 const DEFAULT_AGENT_ID = 'agent-default';
+const setupFlagPrefix = 'xuanzhi.agentSetup.pending.';
 const activeTaskStatuses = new Set<Task['status']>(['created', 'planning', 'running', 'waiting_approval']);
 
 type WorkspaceView = 'home' | 'chat' | 'agent-picker' | 'file';
@@ -58,9 +59,13 @@ function agentToSidebarItem(agent: Agent, tasks: Task[], taskAgentMap: Record<st
 }
 
 export function AssistantShell({ currentUser, token, onLogout }: AssistantShellProps) {
+  const setupFlagKey = `${setupFlagPrefix}${currentUser.id}`;
   const [activeTaskId, setActiveTaskId] = useState<string>();
   const [activeAgentId, setActiveAgentId] = useState(DEFAULT_AGENT_ID);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [pendingInitialSetup, setPendingInitialSetup] = useState(() => (
+    window.localStorage.getItem(setupFlagKey) === '1'
+  ));
   const [taskAgentMap, setTaskAgentMap] = useState<Record<string, string>>({});
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('home');
   const [inputValue, setInputValue] = useState('');
@@ -305,6 +310,8 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
     // Refresh agent list from backend
     try {
       const backendAgents = await agentApi.listAgents();
+      window.localStorage.removeItem(setupFlagKey);
+      setPendingInitialSetup(false);
       setAgents(backendAgents);
       setActiveAgentId(agentId);
       setActiveTaskId(undefined);
@@ -313,7 +320,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
     } catch {
       setWorkspaceView('home');
     }
-  }, []);
+  }, [setupFlagKey]);
 
   const selectPrompt = useCallback((key: string) => {
     setInputValue(promptDrafts[key] ?? '');
@@ -372,7 +379,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
 
   const activeTask = activeAgentTasks.find((task) => task.id === activeTaskId);
   const activeAgent = agents.find((agent) => agent.id === activeAgentId) ?? agents[0];
-  const needsAgentSetup = Boolean(activeAgent && !activeAgent.profile);
+  const needsAgentSetup = Boolean(pendingInitialSetup && activeAgent && !activeAgent.profile);
   const activeMessages = activeTaskId ? messagesByTask[activeTaskId] ?? [] : [];
   const activeApprovals = activeTaskId ? approvalsByTask[activeTaskId] ?? [] : [];
   const activePendingApprovals = activeApprovals.filter((approval) => approval.status === 'pending');

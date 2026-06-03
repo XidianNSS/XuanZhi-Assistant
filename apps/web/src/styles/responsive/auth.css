@@ -40,6 +40,15 @@
     padding: 22px;
   }
 
+  .auth-gateway {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .auth-gateway-retry {
+    grid-column: 2;
+    justify-self: start;
+  }
+
   .auth-copy {
     margin-top: 22px;
   }

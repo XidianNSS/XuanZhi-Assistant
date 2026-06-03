@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 
 import type { AppDependencies } from '../app/dependencies.js';
-import { getOpenClawClient } from '../agents/openclawClient.js';
+import { createXuanzhiWorkspacePath } from '../agents/workspace.js';
 import { requireUserAuth } from '../http/taskGuards.js';
 
 export function registerAuthRoutes(app: FastifyInstance, dependencies: AppDependencies) {
@@ -13,44 +13,13 @@ export function registerAuthRoutes(app: FastifyInstance, dependencies: AppDepend
     }
 
     const agentName = `${result.data.user.name}的玄知助理`;
-    const workspace = `xuanzhi-user-${result.data.user.id}`;
+    const workspace = createXuanzhiWorkspacePath(result.data.user.id);
     const agent = dependencies.services.agents.createAgent(
       result.data.user.id,
       agentName,
       { workspace },
     );
     result.data.agent = agent;
-
-    const client = getOpenClawClient();
-    try {
-      if (!client.isConnected()) {
-        await client.connect();
-      }
-
-      const created = await client.request<{
-        ok: true;
-        agentId: string;
-        name: string;
-        workspace: string;
-      }>('agents.create', {
-        name: agent.id,
-        workspace,
-      });
-
-      void client.request('agents.update', {
-        agentId: created.agentId,
-        name: agentName,
-      });
-
-      result.data.agent = dependencies.store.updateAgentGatewayInfo(
-        agent.id,
-        created.agentId,
-        created.workspace,
-      ) ?? agent;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error('[auth] Gateway agent + workspace creation failed:', message);
-    }
 
     return reply.status(201).send(result.data);
   });
@@ -62,7 +31,11 @@ export function registerAuthRoutes(app: FastifyInstance, dependencies: AppDepend
       return reply.status(401).send({ message: '邮箱或密码错误' });
     }
 
-    login.agent = dependencies.services.agents.getAgentByUser(login.user.id);
+    login.agent = dependencies.services.agents.ensureAgent(
+      login.user.id,
+      `${login.user.name}的玄知助理`,
+      { workspace: createXuanzhiWorkspacePath(login.user.id) },
+    );
     return login;
   });
 
@@ -71,9 +44,14 @@ export function registerAuthRoutes(app: FastifyInstance, dependencies: AppDepend
     if (!auth) {
       return;
     }
+    const agent = dependencies.services.agents.ensureAgent(
+      auth.user.id,
+      `${auth.user.name}的玄知助理`,
+      { workspace: createXuanzhiWorkspacePath(auth.user.id) },
+    );
     return {
       user: auth.user,
-      agent: dependencies.services.agents.getAgentByUser(auth.user.id),
+      agent,
     };
   });
 

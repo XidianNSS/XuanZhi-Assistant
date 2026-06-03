@@ -21,10 +21,10 @@ export function createAgentService(store: MemoryStore) {
       return store.getAgentByUserId(userId);
     },
 
-    ensureAgent(userId: string, name: string) {
+    ensureAgent(userId: string, name: string, opts?: { workspace?: string }) {
       const existing = store.getAgentByUserId(userId);
       if (existing) return existing;
-      return store.createAgent({ userId, name });
+      return store.createAgent({ userId, name, ...opts });
     },
 
     listAgentsForUser(userId: string) {

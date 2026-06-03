@@ -1,5 +1,5 @@
 import { loadConfig, type AppConfig } from '../config/env.js';
-import { MemoryStore, testUsers } from '../repositories/memoryStore.js';
+import { MemoryStore } from '../repositories/memoryStore.js';
 import { StreamHub } from '../realtime/streamHub.js';
 import { createAgentService } from '../services/agentService.js';
 import { createApprovalService } from '../services/approvalService.js';
@@ -13,15 +13,6 @@ export function createAppDependencies(config: AppConfig = loadConfig()) {
   const store = new MemoryStore();
   const stream = new StreamHub();
   const agentService = createAgentService(store);
-
-  for (const user of testUsers) {
-    const existing = agentService.getAgentByUser(user.id);
-    if (!existing) {
-      agentService.createAgent(user.id, `${user.name}的玄知助理`, {
-        workspace: `xuanzhi-user-${user.id}`,
-      });
-    }
-  }
 
   return {
     config,

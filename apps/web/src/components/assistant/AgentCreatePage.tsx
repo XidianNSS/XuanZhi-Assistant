@@ -90,7 +90,7 @@ export function AgentCreatePage({
   const [profile, setProfile] = useState<XuanzhiAgentProfile>(() => createDefaultProfile(isAdmin, existingAgent));
   const [saving, setSaving] = useState(false);
 
-  const workspaceName = existingAgent?.workspace || `xuanzhi-user-${currentUserId}`;
+  const workspaceName = existingAgent?.workspace || '由后端在 OpenClaw 中分配';
   const isInitialSetup = !existingAgent?.profile;
 
   const updateIdentity = (patch: Partial<XuanzhiAgentProfile['identity']>) => {
