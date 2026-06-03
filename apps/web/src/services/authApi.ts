@@ -1,6 +1,6 @@
 import { authFetch } from './apiClient';
 
-import type { LoginResponse, User } from '../types/protocol';
+import type { Agent, LoginResponse, User } from '../types/protocol';
 
 export function login(input: { email: string; password: string }) {
   return authFetch<LoginResponse>('/api/auth/login', {
@@ -17,7 +17,7 @@ export function register(input: { email: string; name: string; password: string 
 }
 
 export function me() {
-  return authFetch<{ user: User }>('/api/auth/me');
+  return authFetch<{ user: User; agent?: Agent }>('/api/auth/me');
 }
 
 export function logout() {

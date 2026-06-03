@@ -2,25 +2,58 @@ import type { FastifyInstance } from 'fastify';
 import type { Agent, AgentStatus } from '@xuanzhi/shared/protocol';
 
 import type { AppDependencies } from '../app/dependencies.js';
+import { getOpenClawClient } from '../agents/openclawClient.js';
 import { requireUserAuth } from '../http/taskGuards.js';
 import { isAgentStatus } from '../schemas/protocolValidators.js';
 
+async function syncAgentProfileToGateway(agent: Agent) {
+  if (!agent.gatewayAgentId || !agent.profile) {
+    return;
+  }
+
+  const client = getOpenClawClient();
+  try {
+    if (!client.isConnected()) {
+      await client.connect();
+    }
+    await client.request('agents.update', {
+      agentId: agent.gatewayAgentId,
+      name: agent.profile.agentName || agent.name,
+      emoji: agent.emoji,
+    });
+    await client.request('agents.files.set', {
+      agentId: agent.gatewayAgentId,
+      name: 'xuanzhi-profile.json',
+      content: JSON.stringify(agent.profile, null, 2),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[agents] Gateway profile sync failed:', message);
+  }
+}
+
+function assertAgentAccess(agent: Agent | undefined, userId: string, isAdmin: boolean) {
+  if (!agent) {
+    return false;
+  }
+  return isAdmin || agent.userId === userId;
+}
+
 export function registerAgentRoutes(app: FastifyInstance, dependencies: AppDependencies) {
-  // Admin-only: create a new agent
   app.post('/api/agents', async (request, reply) => {
     const auth = requireUserAuth(request, reply, dependencies);
     if (!auth) return;
     if (auth.user.role !== 'admin') {
-      return reply.status(403).send({ message: '仅管理员可创建 Agent' });
+      return reply.status(403).send({ message: '普通用户注册后会自动分配一个 Agent，不能手动新建多个 Agent' });
     }
+
     const body = request.body as {
-      name?: string;           // agent/assistant name
+      name?: string;
       profile?: Agent['profile'];
       emoji?: string;
       model?: string;
     };
-    // Agent name defaults to profile.agentName or a fallback
-    const agentName = body.name?.trim() || body.profile?.agentName?.trim() || '新智能体';
+    const agentName = body.name?.trim() || body.profile?.agentName?.trim() || '新的玄知助理';
     const profile = body.profile
       ? { ...body.profile, agentName: body.profile.agentName || agentName }
       : null;
@@ -46,10 +79,7 @@ export function registerAgentRoutes(app: FastifyInstance, dependencies: AppDepen
     if (!auth) return;
     const { agentId } = request.params as { agentId: string };
     const agent = dependencies.services.agents.getAgent(agentId);
-    if (!agent) {
-      return reply.status(404).send({ message: 'Agent 不存在' });
-    }
-    if (auth.user.role !== 'admin' && agent.userId !== auth.user.id) {
+    if (!assertAgentAccess(agent, auth.user.id, auth.user.role === 'admin')) {
       return reply.status(404).send({ message: 'Agent 不存在' });
     }
     return agent;
@@ -66,15 +96,11 @@ export function registerAgentRoutes(app: FastifyInstance, dependencies: AppDepen
     }
 
     const agent = dependencies.services.agents.getAgent(agentId);
-    if (!agent) {
-      return reply.status(404).send({ message: 'Agent 不存在' });
-    }
-    if (auth.user.role !== 'admin' && agent.userId !== auth.user.id) {
+    if (!assertAgentAccess(agent, auth.user.id, auth.user.role === 'admin')) {
       return reply.status(404).send({ message: 'Agent 不存在' });
     }
 
-    const updated = dependencies.services.agents.updateAgentStatus(agentId, body.status);
-    return updated;
+    return dependencies.services.agents.updateAgentStatus(agentId, body.status);
   });
 
   app.patch('/api/agents/:agentId/profile', async (request, reply) => {
@@ -88,11 +114,7 @@ export function registerAgentRoutes(app: FastifyInstance, dependencies: AppDepen
     }
 
     const agent = dependencies.services.agents.getAgent(agentId);
-    if (!agent) {
-      return reply.status(404).send({ message: 'Agent 不存在' });
-    }
-    // Only the agent owner or admin can update profile
-    if (auth.user.role !== 'admin' && agent.userId !== auth.user.id) {
+    if (!assertAgentAccess(agent, auth.user.id, auth.user.role === 'admin')) {
       return reply.status(404).send({ message: 'Agent 不存在' });
     }
 
@@ -103,6 +125,8 @@ export function registerAgentRoutes(app: FastifyInstance, dependencies: AppDepen
     if (!updated) {
       return reply.status(404).send({ message: 'Agent 不存在' });
     }
+
+    void syncAgentProfileToGateway(updated);
     return updated;
   });
 }

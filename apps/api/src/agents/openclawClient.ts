@@ -1,5 +1,7 @@
 import { WebSocket } from 'ws';
 
+import { getOrCreateDeviceIdentity, saveDeviceToken, signDeviceChallenge } from './deviceIdentity.js';
+
 // ── Event bus ──
 
 class EventBus {
@@ -69,6 +71,9 @@ export interface GatewayStatus {
   gatewayVersion: string | null;
   gatewayHost: string | null;
   agents: number;
+  deviceId: string | null;
+  hasDeviceToken: boolean;
+  lastError: string | null;
 }
 
 type StatusListener = (status: GatewayStatus) => void;
@@ -95,6 +100,10 @@ export class OpenClawClient {
   private wsUrl: string;
   private password: string | undefined;
   private requestTimeoutMs: number;
+  private deviceIdentityPath: string;
+  private clientId: string;
+  private clientMode: string;
+  private scopes: string[];
 
   private _status: ConnectionStatus = 'disconnected';
   private _health: HealthStatus = 'unhealthy';
@@ -105,6 +114,10 @@ export class OpenClawClient {
   private _gatewayVersion: string | null = null;
   private _gatewayHost: string | null = null;
   private _agentCount = 0;
+  private _deviceId: string | null = null;
+  private _hasDeviceToken = false;
+  private _lastError: string | null = null;
+  private lastChallenge: { nonce: string; ts: number } | null = null;
 
   private connectPromise: Promise<void> | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
@@ -119,14 +132,33 @@ export class OpenClawClient {
     this.wsUrl = process.env.OPENCLAW_WS_URL ?? 'ws://127.0.0.1:18789';
     this.password = process.env.OPENCLAW_PASSWORD;
     this.requestTimeoutMs = Number(process.env.OPENCLAW_REQUEST_TIMEOUT ?? '15000');
+    this.deviceIdentityPath = process.env.OPENCLAW_DEVICE_IDENTITY_PATH ?? '.openclaw-device.json';
+    this.clientId = process.env.OPENCLAW_CLIENT_ID ?? 'gateway-client';
+    this.clientMode = process.env.OPENCLAW_CLIENT_MODE ?? 'backend';
+    this.scopes = (process.env.OPENCLAW_SCOPES ?? 'operator.read,operator.write,operator.admin')
+      .split(',')
+      .map((scope) => scope.trim())
+      .filter(Boolean);
   }
 
   // ── Config ──
 
-  configure(options: { wsUrl?: string; password?: string; requestTimeoutMs?: number }) {
+  configure(options: {
+    wsUrl?: string;
+    password?: string;
+    requestTimeoutMs?: number;
+    deviceIdentityPath?: string;
+    clientId?: string;
+    clientMode?: string;
+    scopes?: string[];
+  }) {
     if (options.wsUrl) this.wsUrl = options.wsUrl;
     if (options.password !== undefined) this.password = options.password;
     if (options.requestTimeoutMs !== undefined) this.requestTimeoutMs = options.requestTimeoutMs;
+    if (options.deviceIdentityPath) this.deviceIdentityPath = options.deviceIdentityPath;
+    if (options.clientId) this.clientId = options.clientId;
+    if (options.clientMode) this.clientMode = options.clientMode;
+    if (options.scopes) this.scopes = options.scopes;
   }
 
   // ── Status ──
@@ -142,6 +174,9 @@ export class OpenClawClient {
       gatewayVersion: this._gatewayVersion,
       gatewayHost: this._gatewayHost,
       agents: this._agentCount,
+      deviceId: this._deviceId,
+      hasDeviceToken: this._hasDeviceToken,
+      lastError: this._lastError,
     };
   }
 
@@ -194,6 +229,7 @@ export class OpenClawClient {
       })
       .catch((err) => {
         this.connectPromise = null;
+        this._lastError = err instanceof Error ? err.message : String(err);
         this.setHealth('unhealthy');
         this.setStatus('disconnected');
         this.broadcastStatus();
@@ -207,30 +243,65 @@ export class OpenClawClient {
     await this.openSocket();
 
     const challenge = await this.waitForChallenge(2000);
-    void challenge;
+    const clientInfo = {
+      id: this.clientId,
+      version: '1.0.0',
+      platform: 'node',
+      mode: this.clientMode,
+      instanceId: `xuanzhi-api-${Date.now()}`,
+    };
 
     const params: Record<string, unknown> = {
       minProtocol: 4,
       maxProtocol: 4,
-      client: {
-        id: 'gateway-client',
-        version: '1.0.0',
-        platform: 'node',
-        mode: 'backend',
-        instanceId: `xuanzhi-api-${Date.now()}`,
-      },
+      client: clientInfo,
       role: 'operator',
-      scopes: ['operator.read', 'operator.write', 'operator.admin'],
+      scopes: this.scopes,
     };
 
-    if (this.password) {
-      params.auth = { token: this.password };
+    const identity = getOrCreateDeviceIdentity(this.deviceIdentityPath);
+    this._deviceId = identity.deviceId;
+    this._hasDeviceToken = Boolean(identity.deviceToken);
+    const authToken = identity.deviceToken || this.password;
+    if (authToken) {
+      params.auth = identity.deviceToken
+        ? { deviceToken: identity.deviceToken, token: identity.deviceToken }
+        : { token: authToken };
+    }
+
+    if (challenge?.nonce) {
+      const signedAt = Date.now();
+      const token = authToken ?? '';
+      const dataToSign = [
+        'v2',
+        identity.deviceId,
+        clientInfo.id,
+        clientInfo.mode,
+        'operator',
+        this.scopes.join(','),
+        String(signedAt),
+        token,
+        challenge.nonce,
+      ].join('|');
+      params.device = {
+        id: identity.deviceId,
+        publicKey: identity.publicKey,
+        signature: signDeviceChallenge(identity, dataToSign),
+        signedAt,
+        nonce: challenge.nonce,
+      };
     }
 
     const result = await this.request<{
       server?: { version?: string };
+      auth?: { deviceToken?: string };
       snapshot?: { health?: { agents?: Array<unknown> } };
     }>('connect', params);
+
+    if (result?.auth?.deviceToken) {
+      saveDeviceToken(this.deviceIdentityPath, result.auth.deviceToken);
+      this._hasDeviceToken = true;
+    }
 
     this._gatewayVersion = result?.server?.version ?? null;
     this._agentCount = result?.snapshot?.health?.agents?.length ?? 0;
@@ -238,6 +309,7 @@ export class OpenClawClient {
     this.reconnectAttempts = 0;
     this._consecutiveHealthFailures = 0;
     this._lastHealthOk = true;
+    this._lastError = null;
     this.setHealth('healthy');
     this.setStatus('connected');
     this.broadcastStatus();
@@ -288,6 +360,11 @@ export class OpenClawClient {
   // ── Challenge ──
 
   private waitForChallenge(timeoutMs: number): Promise<{ nonce: string; ts: number } | null> {
+    if (this.lastChallenge) {
+      const challenge = this.lastChallenge;
+      this.lastChallenge = null;
+      return Promise.resolve(challenge);
+    }
     return new Promise((resolve) => {
       const timer = setTimeout(() => resolve(null), timeoutMs);
       const unsub = this.eventBus.on('connect.challenge', (payload: unknown) => {
@@ -359,6 +436,13 @@ export class OpenClawClient {
 
     if (f.type === 'event') {
       const evt = f as GatewayEventFrame;
+      if (evt.event === 'connect.challenge') {
+        const p = evt.payload as Record<string, unknown> | undefined;
+        this.lastChallenge = {
+          nonce: String(p?.nonce ?? ''),
+          ts: Number(p?.ts ?? 0),
+        };
+      }
       this.eventBus.emit(evt.event, evt.payload);
     }
   }
@@ -379,6 +463,7 @@ export class OpenClawClient {
     this.stopKeepAlive();
     this.setHealth('unhealthy');
     this.setStatus('reconnecting');
+    this._lastError = reason;
     this.broadcastStatus();
     this.scheduleReconnect();
   }

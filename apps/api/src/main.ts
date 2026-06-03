@@ -11,6 +11,10 @@ getOpenClawClient().configure({
   wsUrl: config.openclaw.wsUrl,
   password: config.openclaw.password,
   requestTimeoutMs: config.openclaw.requestTimeoutMs,
+  deviceIdentityPath: config.openclaw.deviceIdentityPath,
+  clientId: config.openclaw.clientId,
+  clientMode: config.openclaw.clientMode,
+  scopes: config.openclaw.scopes,
 });
 
 // Start OpenClaw Gateway persistence connection (non-blocking)

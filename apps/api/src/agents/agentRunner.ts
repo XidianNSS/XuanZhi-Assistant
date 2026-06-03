@@ -194,7 +194,9 @@ async function ensureGatewayAgent(
     const listResult = await client.request<{
       agents?: Array<{ id: string; name?: string; workspace?: string }>;
     }>('agents.list');
-    const existing = listResult?.agents?.find((a) => a.id === agent.id);
+    const existing = listResult?.agents?.find((a) =>
+      a.name === agent.id || a.workspace === agent.workspace,
+    );
     if (existing?.id) {
       store.updateAgentGatewayInfo(agent.id, existing.id, existing.workspace ?? '');
       helpers.publishEvent(

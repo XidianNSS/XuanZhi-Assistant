@@ -14,11 +14,12 @@ export function createAppDependencies(config: AppConfig = loadConfig()) {
   const stream = new StreamHub();
   const agentService = createAgentService(store);
 
-  // 为种子用户创建 Agent
   for (const user of testUsers) {
     const existing = agentService.getAgentByUser(user.id);
     if (!existing) {
-      agentService.createAgent(user.id, user.name);
+      agentService.createAgent(user.id, `${user.name}的玄知助理`, {
+        workspace: `xuanzhi-user-${user.id}`,
+      });
     }
   }
 

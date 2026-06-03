@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 
-import { Button, Checkbox, Input } from '../ui';
+import { Button, Checkbox, Input, toast } from '../ui';
 import { Icon } from '../ui/icons';
 import { BrandLockup } from '../brand/BrandLockup';
 import { ProductLogo } from './ProductLogo';
@@ -25,11 +25,12 @@ export function AuthScreen({ loading, onLogin, onRegister }: AuthScreenProps) {
   const [formValues, setFormValues] = useState(initialForm);
 
   const switchAuthMode = (nextMode: AuthMode) => {
-    if (nextMode === authMode) {
-      return;
-    }
-
-    setFormValues(initialForm);
+    if (nextMode === authMode) return;
+    setFormValues({
+      ...initialForm,
+      email: nextMode === 'login' ? 'user-a@example.com' : '',
+      password: nextMode === 'login' ? 'dev-password' : '',
+    });
     setAuthMode(nextMode);
   };
 
@@ -40,17 +41,22 @@ export function AuthScreen({ loading, onLogin, onRegister }: AuthScreenProps) {
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (authMode === 'register') {
+      if (formValues.password !== formValues.confirmPassword) {
+        toast.error('两次输入的密码不一致');
+        return;
+      }
       void onRegister({
         email: formValues.email,
         name: formValues.name,
         password: formValues.password,
       });
-    } else {
-      void onLogin({
-        email: formValues.email,
-        password: formValues.password,
-      });
+      return;
     }
+
+    void onLogin({
+      email: formValues.email,
+      password: formValues.password,
+    });
   };
 
   return (
@@ -60,7 +66,7 @@ export function AuthScreen({ loading, onLogin, onRegister }: AuthScreenProps) {
           <ProductLogo />
           <div className="auth-intro">
             <h2>企业知识与工具的统一入口</h2>
-            <p>将知识库问答、联网检索和 Agent 工具调用收束到一条清晰对话主线。</p>
+            <p>每个用户拥有独立 Agent 和 OpenClaw workspace，对话、文件和执行上下文互相隔离。</p>
           </div>
         </div>
 
@@ -68,8 +74,12 @@ export function AuthScreen({ loading, onLogin, onRegister }: AuthScreenProps) {
           <BrandLockup className="auth-brand" />
 
           <div className="auth-copy">
-            <h1>{authMode === 'login' ? '登录玄知助手' : '创建玄知账号'}</h1>
-            <p>进入简洁、专注的企业智能助手工作台。</p>
+            <h1>{authMode === 'login' ? '登录玄知助理' : '创建玄知账号'}</h1>
+            <p>
+              {authMode === 'login'
+                ? '进入你的专属 Agent 工作区。'
+                : '注册后系统会自动创建专属 Agent 和隔离 workspace。'}
+            </p>
           </div>
 
           <div
@@ -109,6 +119,7 @@ export function AuthScreen({ loading, onLogin, onRegister }: AuthScreenProps) {
                   placeholder="请输入姓名"
                   autoComplete="name"
                   disabled={authMode !== 'register'}
+                  required={authMode === 'register'}
                   value={formValues.name}
                   onChange={(event) => updateField('name', event.target.value)}
                 />
@@ -150,6 +161,7 @@ export function AuthScreen({ loading, onLogin, onRegister }: AuthScreenProps) {
                   placeholder="请再次输入密码"
                   autoComplete="new-password"
                   disabled={authMode !== 'register'}
+                  required={authMode === 'register'}
                   value={formValues.confirmPassword}
                   onChange={(event) => updateField('confirmPassword', event.target.value)}
                 />
@@ -166,7 +178,7 @@ export function AuthScreen({ loading, onLogin, onRegister }: AuthScreenProps) {
             </div>
 
             <Button type="primary" htmlType="submit" size="large" block className="auth-submit" loading={loading}>
-              {authMode === 'login' ? '登录' : '注册并进入'}
+              {authMode === 'login' ? '登录' : '注册并进入初始化'}
             </Button>
           </form>
         </section>

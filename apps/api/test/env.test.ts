@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 describe('env file loading', () => {
-  it('loads configuration from the nearest ancestor .env file', () => {
+  it('loads OpenClaw Gateway configuration from the nearest ancestor .env file', () => {
     tempRoot = mkdtempSync(join(tmpdir(), 'xuanzhi-env-'));
     const nestedDirectory = join(tempRoot, 'apps', 'api');
     mkdirSync(nestedDirectory, { recursive: true });
@@ -24,10 +24,13 @@ describe('env file loading', () => {
       join(tempRoot, '.env'),
       [
         'XUANZHI_API_TOKEN=file-token',
-        'XUANZHI_AGENT_RUNTIME=direct',
-        'XUANZHI_MODEL_BASE_URL=https://model.example/v1',
-        'XUANZHI_MODEL_API_KEY=file-key',
-        'XUANZHI_MODEL_NAME=file-model',
+        'OPENCLAW_WS_URL=ws://127.0.0.1:18789',
+        'OPENCLAW_PASSWORD=file-gateway-token',
+        'OPENCLAW_REQUEST_TIMEOUT=45000',
+        'OPENCLAW_DEVICE_IDENTITY_PATH=.test-openclaw-device.json',
+        'OPENCLAW_CLIENT_ID=xuanzhi-test-client',
+        'OPENCLAW_CLIENT_MODE=backend-test',
+        'OPENCLAW_SCOPES=operator.read, operator.write',
       ].join('\n'),
     );
 
@@ -35,11 +38,14 @@ describe('env file loading', () => {
 
     expect(config).toMatchObject({
       serviceToken: 'file-token',
-      agentRuntime: 'direct',
-      directModel: {
-        baseUrl: 'https://model.example/v1',
-        apiKey: 'file-key',
-        model: 'file-model',
+      openclaw: {
+        wsUrl: 'ws://127.0.0.1:18789',
+        password: 'file-gateway-token',
+        requestTimeoutMs: 45000,
+        deviceIdentityPath: '.test-openclaw-device.json',
+        clientId: 'xuanzhi-test-client',
+        clientMode: 'backend-test',
+        scopes: ['operator.read', 'operator.write'],
       },
     });
   });
@@ -50,17 +56,18 @@ describe('env file loading', () => {
       join(tempRoot, '.env'),
       [
         'XUANZHI_API_TOKEN=file-token',
-        'XUANZHI_AGENT_RUNTIME=mock',
+        'OPENCLAW_WS_URL=ws://file.example:18789',
       ].join('\n'),
     );
 
     const config = loadConfig(
       loadRuntimeEnv(tempRoot, {
         XUANZHI_API_TOKEN: 'process-token',
+        OPENCLAW_WS_URL: 'ws://process.example:18789',
       }),
     );
 
     expect(config.serviceToken).toBe('process-token');
-    expect(config.agentRuntime).toBe('mock');
+    expect(config.openclaw.wsUrl).toBe('ws://process.example:18789');
   });
 });

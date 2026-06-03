@@ -3,7 +3,7 @@ import type { ServerResponse } from 'node:http';
 import type { StreamEvent } from '@xuanzhi/shared/protocol';
 
 // StreamHub 只按 taskId 分发消息；跨用户隔离依赖订阅路由在建立连接前完成鉴权。
-// 这样插件和 Mock Agent 只需要广播 taskId，不能直接决定任何用户可见范围。
+// 这样插件和 OpenClaw Agent 只需要广播 taskId，不能直接决定任何用户可见范围。
 export class StreamHub {
   private readonly clients = new Map<string, Set<ServerResponse>>();
 

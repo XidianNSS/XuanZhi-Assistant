@@ -3,14 +3,14 @@ import { Icon } from '../ui/icons';
 
 import type { Task } from '../../types/protocol';
 
-const taskStatusLabel = {
+const taskStatusLabel: Record<Task['status'], string> = {
   created: '已创建',
   planning: '规划中',
   running: '执行中',
   waiting_approval: '等待确认',
   completed: '已完成',
   failed: '失败',
-} satisfies Record<Task['status'], string>;
+};
 
 type WorkspaceHeaderProps = {
   sidebarCollapsed: boolean;

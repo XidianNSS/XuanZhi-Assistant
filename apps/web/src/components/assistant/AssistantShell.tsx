@@ -121,7 +121,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
       setActiveTaskId(taskId);
       setWorkspaceView('chat');
       try {
-        // 先加载任务快照再建立当前任务 SSE；创建新任务时会先进入这里，再发送首条消息触发 Mock Agent。
+        // 先加载任务快照再建立当前任务 SSE；创建新任务时会先进入这里，再发送首条消息触发 OpenClaw Agent。
         await loadTaskSnapshot(taskId);
         if (streamGeneration !== streamGenerationRef.current) {
           return;
@@ -238,14 +238,13 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         }));
 
         if (task.id !== activeTaskId) {
-          // 新任务需要先打开详情并建立 SSE，再发送首条消息；Mock Agent 会在消息写入后立刻推送事件。
+          // 新任务需要先打开详情并建立 SSE，再发送首条消息；OpenClaw Agent 会通过后端持续推送事件。
           await openTask(task.id);
         }
 
         const createdMessage = await messageApi.sendTaskMessage(task.id, question);
         setMessagesByTask((current) => upsertTaskRecordItem(current, task.id, createdMessage));
-        // Mock Agent 目前会同步生成事件、产物和审批；这里主动刷新一次快照，
-        // 避免 SSE 连接尚未完全建立时漏掉首轮进度和审批。
+        // OpenClaw Gateway 的首轮事件可能早于浏览器完成 SSE 建连；这里主动刷新一次快照。
         await loadTaskSnapshot(task.id);
         setWorkspaceView('chat');
       } catch (error) {
@@ -372,11 +371,13 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
   }, [closeStream, onLogout]);
 
   const activeTask = activeAgentTasks.find((task) => task.id === activeTaskId);
+  const activeAgent = agents.find((agent) => agent.id === activeAgentId) ?? agents[0];
+  const needsAgentSetup = Boolean(activeAgent && !activeAgent.profile);
   const activeMessages = activeTaskId ? messagesByTask[activeTaskId] ?? [] : [];
   const activeApprovals = activeTaskId ? approvalsByTask[activeTaskId] ?? [] : [];
   const activePendingApprovals = activeApprovals.filter((approval) => approval.status === 'pending');
   const isChatting = Boolean(activeTask);
-  const isAgentPicker = workspaceView === 'agent-picker';
+  const isAgentPicker = workspaceView === 'agent-picker' || needsAgentSetup;
   const isFileSpace = workspaceView === 'file';
   const activeWorkspace: WorkspaceKey = isFileSpace ? 'file' : 'chat';
 
@@ -415,8 +416,13 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
             <AgentCreatePage
                 currentUserId={currentUser.id}
                 isAdmin={currentUser.role === 'admin'}
+                existingAgent={activeAgent}
                 onCreated={handleAgentCreated}
-                onCancel={() => setWorkspaceView('home')}
+                onCancel={() => {
+                  if (!needsAgentSetup) {
+                    setWorkspaceView('home');
+                  }
+                }}
               />
           ) : isChatting && activeTask ? (
             <section className="task-chat-column">

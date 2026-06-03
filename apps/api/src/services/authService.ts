@@ -5,7 +5,8 @@ import type { MemoryStore } from '../repositories/memoryStore.js';
 export function createAuthService(store: MemoryStore) {
   return {
     register(email: string | undefined, name: string | undefined, password: string | undefined) {
-      if (!email?.includes('@')) {
+      const normalizedEmail = email?.trim().toLowerCase();
+      if (!normalizedEmail?.includes('@')) {
         return { error: '邮箱格式不正确' as const };
       }
       if (!name?.trim()) {
@@ -14,19 +15,20 @@ export function createAuthService(store: MemoryStore) {
       if (!password || password.length < 6) {
         return { error: '密码至少需要 6 位' as const };
       }
-      if (store.findUserByEmail(email)) {
+      if (store.findUserByEmail(normalizedEmail)) {
         return { error: '该邮箱已被注册' as const };
       }
 
-      const user = store.createUser({ email, name: name.trim(), password });
+      const user = store.createUser({ email: normalizedEmail, name: name.trim(), password });
       const session = store.createSession(user.id);
 
       const result: LoginResponse = { token: session.token, user };
-      return { data: result as LoginResponse };
+      return { data: result };
     },
 
     login(email: string | undefined, password: string | undefined): LoginResponse | undefined {
-      const user = email ? store.findUserByEmail(email) : undefined;
+      const normalizedEmail = email?.trim().toLowerCase();
+      const user = normalizedEmail ? store.findUserByEmail(normalizedEmail) : undefined;
       if (!user || !password) {
         return undefined;
       }

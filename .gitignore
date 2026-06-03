@@ -23,6 +23,9 @@ playwright-report/
 .env.*
 !.env.example
 !.env.*.example
+*.openclaw-device.json
+.openclaw-device.json
+**/.openclaw-device.json
 
 # Logs
 *.log

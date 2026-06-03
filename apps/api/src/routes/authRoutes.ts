@@ -12,47 +12,44 @@ export function registerAuthRoutes(app: FastifyInstance, dependencies: AppDepend
       return reply.status(400).send({ message: result.error });
     }
 
-    // Create local agent record. Agent name defaults to a placeholder —
-    // the user will set a proper agent name via the registration wizard.
-    const agentName = `默认助手`;
+    const agentName = `${result.data.user.name}的玄知助理`;
+    const workspace = `xuanzhi-user-${result.data.user.id}`;
     const agent = dependencies.services.agents.createAgent(
       result.data.user.id,
       agentName,
+      { workspace },
     );
+    result.data.agent = agent;
 
-    // Synchronously create Gateway agent + workspace.
-    // Gateway agent name = xuanzhi agent name (the assistant's identity, not the user's).
     const client = getOpenClawClient();
-    if (client.isConnected()) {
-      try {
-        const workspace = `xuanzhi-agent-${agent.id}`;
-        const created = await client.request<{
-          ok: true;
-          agentId: string;
-          name: string;
-          workspace: string;
-        }>('agents.create', {
-          name: agent.id,
-          workspace,
-        });
-
-        // Set Gateway agent display name to the assistant name
-        client.request('agents.update', {
-          agentId: created.agentId,
-          name: agentName,
-        }).catch(() => {
-          // best-effort
-        });
-
-        dependencies.store.updateAgentGatewayInfo(
-          agent.id,
-          created.agentId,
-          created.workspace,
-        );
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error('[auth] Gateway agent + workspace creation failed:', message);
+    try {
+      if (!client.isConnected()) {
+        await client.connect();
       }
+
+      const created = await client.request<{
+        ok: true;
+        agentId: string;
+        name: string;
+        workspace: string;
+      }>('agents.create', {
+        name: agent.id,
+        workspace,
+      });
+
+      void client.request('agents.update', {
+        agentId: created.agentId,
+        name: agentName,
+      });
+
+      result.data.agent = dependencies.store.updateAgentGatewayInfo(
+        agent.id,
+        created.agentId,
+        created.workspace,
+      ) ?? agent;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[auth] Gateway agent + workspace creation failed:', message);
     }
 
     return reply.status(201).send(result.data);
@@ -64,6 +61,8 @@ export function registerAuthRoutes(app: FastifyInstance, dependencies: AppDepend
     if (!login) {
       return reply.status(401).send({ message: '邮箱或密码错误' });
     }
+
+    login.agent = dependencies.services.agents.getAgentByUser(login.user.id);
     return login;
   });
 
@@ -72,7 +71,10 @@ export function registerAuthRoutes(app: FastifyInstance, dependencies: AppDepend
     if (!auth) {
       return;
     }
-    return { user: auth.user };
+    return {
+      user: auth.user,
+      agent: dependencies.services.agents.getAgentByUser(auth.user.id),
+    };
   });
 
   app.post('/api/auth/logout', async (request, reply) => {

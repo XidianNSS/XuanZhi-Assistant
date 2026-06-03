@@ -1,9 +1,128 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-
-import { buildApp } from '../src/app.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { FastifyInstance } from 'fastify';
-import type { AgentEvent, Approval, Artifact, LoginResponse, Message, Task, TaskIntent } from '@xuanzhi/shared/protocol';
+import type { AgentEvent, LoginResponse, Message, Task, TaskIntent } from '@xuanzhi/shared/protocol';
+
+const gateway = vi.hoisted(() => {
+  type Handler = (payload: unknown) => void;
+
+  const handlers = new Map<string, Set<Handler>>();
+  const calls: Array<{ method: string; params?: unknown }> = [];
+  let agentSequence = 0;
+
+  const emit = (event: string, payload: unknown) => {
+    for (const handler of handlers.get(event) ?? []) {
+      handler(payload);
+    }
+  };
+
+  const client = {
+    isConnected: vi.fn(() => true),
+    connect: vi.fn(async () => undefined),
+    request: vi.fn(async (method: string, params?: unknown) => {
+      calls.push({ method, params });
+
+      if (method === 'health') {
+        return { ok: true, status: 'ok', agents: [] };
+      }
+
+      if (method === 'agents.list') {
+        return { agents: [] };
+      }
+
+      if (method === 'agents.create') {
+        agentSequence += 1;
+        const input = params as { workspace?: string };
+        return {
+          ok: true,
+          agentId: `gateway-agent-${agentSequence}`,
+          name: `gateway-agent-${agentSequence}`,
+          workspace: input.workspace ?? `workspace-${agentSequence}`,
+        };
+      }
+
+      if (method === 'agents.update' || method === 'agents.files.set') {
+        return { ok: true };
+      }
+
+      if (method === 'sessions.create') {
+        const input = params as { key: string; agentId: string };
+        const key = input.key === 'main'
+          ? `agent:${input.agentId}:main`
+          : `agent:${input.agentId}:${input.key}`;
+        return { key };
+      }
+
+      if (method === 'chat.send') {
+        const input = params as { sessionKey: string; message: string };
+        setTimeout(() => {
+          emit('chat', {
+            runId: `run-${Date.now()}`,
+            sessionKey: input.sessionKey,
+            seq: 1,
+            state: 'final',
+            message: {
+              role: 'assistant',
+              content: [
+                {
+                  type: 'text',
+                  text: `OpenClaw response: ${input.message}`,
+                },
+              ],
+            },
+          });
+        }, 0);
+        return { ok: true };
+      }
+
+      return { ok: true };
+    }),
+    on: vi.fn((event: string, handler: Handler) => {
+      if (!handlers.has(event)) {
+        handlers.set(event, new Set());
+      }
+      handlers.get(event)!.add(handler);
+      return () => {
+        handlers.get(event)?.delete(handler);
+      };
+    }),
+    getConnectionStatus: vi.fn(() => ({
+      status: 'connected',
+      health: 'healthy',
+      connectedAt: Date.now(),
+      lastHealthCheck: Date.now(),
+      lastHealthOk: true,
+      consecutiveHealthFailures: 0,
+      gatewayVersion: 'test',
+      gatewayHost: '127.0.0.1',
+      agents: agentSequence,
+      deviceId: 'test-device',
+      hasDeviceToken: true,
+      lastError: null,
+    })),
+  };
+
+  return {
+    calls,
+    client,
+    reset() {
+      calls.length = 0;
+      handlers.clear();
+      agentSequence = 0;
+      client.isConnected.mockClear();
+      client.connect.mockClear();
+      client.request.mockClear();
+      client.on.mockClear();
+      client.getConnectionStatus.mockClear();
+    },
+  };
+});
+
+vi.mock('../src/agents/openclawClient.js', () => ({
+  getOpenClawClient: () => gateway.client,
+}));
+
+const { buildApp } = await import('../src/app.js');
 
 async function login(app: FastifyInstance, email: string) {
   const response = await app.inject({
@@ -32,9 +151,9 @@ async function createTask(
       authorization: `Bearer ${token}`,
     },
     payload: {
-      title: (options.title ?? userInput.trim().slice(0, 28)) || '新任务',
+      title: options.title ?? userInput.trim().slice(0, 28),
       userInput,
-      intent: options.intent ?? 'meeting',
+      intent: options.intent ?? 'general',
       userId: 'spoofed-user',
     },
   });
@@ -60,27 +179,40 @@ async function sendUserMessage(app: FastifyInstance, token: string, taskId: stri
   return response.json<Message>();
 }
 
-describe('xuanzhi api mvp', () => {
+async function waitForCondition(assertion: () => void | Promise<void>) {
+  let lastError: unknown;
+  for (let index = 0; index < 30; index += 1) {
+    try {
+      await assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+  throw lastError;
+}
+
+describe('xuanzhi api with OpenClaw Gateway', () => {
   let app: FastifyInstance;
-  const previousAgentRuntime = process.env.XUANZHI_AGENT_RUNTIME;
 
   beforeEach(async () => {
-    process.env.XUANZHI_AGENT_RUNTIME = 'mock';
+    gateway.reset();
     app = buildApp();
     await app.ready();
   });
 
   afterEach(async () => {
     await app.close();
-    if (previousAgentRuntime === undefined) {
-      delete process.env.XUANZHI_AGENT_RUNTIME;
-    } else {
-      process.env.XUANZHI_AGENT_RUNTIME = previousAgentRuntime;
-    }
   });
 
-  it('authenticates test users and resolves currentUser from bearer token', async () => {
-    const { token, user } = await login(app, 'user-a@example.com');
+  it('authenticates test users and returns the user agent', async () => {
+    const { token, user, agent } = await login(app, 'user-a@example.com');
+
+    expect(agent).toMatchObject({
+      userId: user.id,
+      workspace: `xuanzhi-user-${user.id}`,
+    });
 
     const meResponse = await app.inject({
       method: 'GET',
@@ -91,18 +223,45 @@ describe('xuanzhi api mvp', () => {
     });
 
     expect(meResponse.statusCode).toBe(200);
-    expect(meResponse.json<{ user: LoginResponse['user'] }>().user).toMatchObject({
-      id: user.id,
-      email: 'user-a@example.com',
+    expect(meResponse.json<LoginResponse>()).toMatchObject({
+      user: {
+        id: user.id,
+        email: 'user-a@example.com',
+      },
+      agent: {
+        userId: user.id,
+      },
     });
+  });
+
+  it('creates an OpenClaw-backed agent and workspace during registration', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        email: 'new-user@example.com',
+        name: 'New User',
+        password: 'dev-password',
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const body = response.json<LoginResponse>();
+    expect(body.agent).toMatchObject({
+      userId: body.user.id,
+      gatewayAgentId: 'gateway-agent-1',
+      workspace: `xuanzhi-user-${body.user.id}`,
+    });
+    expect(gateway.calls.some((call) => call.method === 'agents.create')).toBe(true);
+    expect(gateway.calls.some((call) => call.method === 'agents.update')).toBe(true);
   });
 
   it('binds tasks to currentUser and keeps task lists isolated', async () => {
     const userA = await login(app, 'user-a@example.com');
     const userB = await login(app, 'user-b@example.com');
 
-    const taskA = await createTask(app, userA.token, '下周三上午帮我预约张三开项目复盘会');
-    const taskB = await createTask(app, userB.token, '整理销售周报');
+    const taskA = await createTask(app, userA.token, 'Summarize document A');
+    const taskB = await createTask(app, userB.token, 'Summarize document B');
 
     expect(taskA.userId).toBe(userA.user.id);
     expect(taskB.userId).toBe(userB.user.id);
@@ -138,64 +297,22 @@ describe('xuanzhi api mvp', () => {
     expect(forbiddenDetail.statusCode).toBe(404);
   });
 
-  it('creates mock agent events, artifacts, and approval after a user message', async () => {
+  it('dispatches user messages to OpenClaw sessions and stores the assistant reply', async () => {
     const userA = await login(app, 'user-a@example.com');
-    const task = await createTask(app, userA.token, '下周三上午帮我预约张三开项目复盘会');
+    const task = await createTask(app, userA.token, 'Explain the uploaded notes');
 
     await sendUserMessage(app, userA.token, task.id, task.userInput);
 
-    const [eventsResponse, artifactsResponse, approvalsResponse] = await Promise.all([
-      app.inject({
-        method: 'GET',
-        url: `/api/tasks/${task.id}/events`,
-        headers: { authorization: `Bearer ${userA.token}` },
-      }),
-      app.inject({
-        method: 'GET',
-        url: `/api/tasks/${task.id}/artifacts`,
-        headers: { authorization: `Bearer ${userA.token}` },
-      }),
-      app.inject({
-        method: 'GET',
-        url: `/api/tasks/${task.id}/approvals`,
-        headers: { authorization: `Bearer ${userA.token}` },
-      }),
-    ]);
-
-    const events = eventsResponse.json<AgentEvent[]>();
-    const artifacts = artifactsResponse.json<Artifact[]>();
-    const approvals = approvalsResponse.json<Approval[]>();
-
-    expect(events.map((event) => event.title)).toEqual([
-      '已创建任务',
-      '已收到用户输入',
-      '正在分析任务',
-      '已生成执行计划',
-      '已生成会议草稿',
-      '等待用户确认是否创建会议',
-    ]);
-    expect(artifacts.map((artifact) => artifact.type)).toEqual(['plan', 'meeting_draft']);
-    expect(approvals).toHaveLength(1);
-    expect(approvals[0]).toMatchObject({
-      userId: userA.user.id,
-      taskId: task.id,
-      status: 'pending',
-    });
-  });
-
-  it('answers knowledge-base questions without requesting a calendar approval on the first message', async () => {
-    const userA = await login(app, 'user-a@example.com');
-    const prompt = '基于上传的知识库资料，回答用户问题时如何展示来源和置信度？';
-    const task = await createTask(app, userA.token, prompt);
-
-    await sendUserMessage(app, userA.token, task.id, task.userInput);
-
-    const [taskResponse, messagesResponse, artifactsResponse, approvalsResponse] = await Promise.all([
-      app.inject({
+    await waitForCondition(async () => {
+      const taskResponse = await app.inject({
         method: 'GET',
         url: `/api/tasks/${task.id}`,
         headers: { authorization: `Bearer ${userA.token}` },
-      }),
+      });
+      expect(taskResponse.json<Task>().status).toBe('completed');
+    });
+
+    const [messagesResponse, eventsResponse] = await Promise.all([
       app.inject({
         method: 'GET',
         url: `/api/tasks/${task.id}/messages`,
@@ -203,135 +320,73 @@ describe('xuanzhi api mvp', () => {
       }),
       app.inject({
         method: 'GET',
-        url: `/api/tasks/${task.id}/artifacts`,
-        headers: { authorization: `Bearer ${userA.token}` },
-      }),
-      app.inject({
-        method: 'GET',
-        url: `/api/tasks/${task.id}/approvals`,
+        url: `/api/tasks/${task.id}/events`,
         headers: { authorization: `Bearer ${userA.token}` },
       }),
     ]);
 
     const messages = messagesResponse.json<Message[]>();
-    const artifacts = artifactsResponse.json<Artifact[]>();
-    const approvals = approvalsResponse.json<Approval[]>();
-
-    expect(taskResponse.json<Task>().status).toBe('completed');
-    expect(messages.map((message) => message.role)).toEqual(['user', 'assistant']);
-    expect(messages.at(-1)?.content).toContain('来源');
-    expect(artifacts.map((artifact) => artifact.type)).not.toContain('meeting_draft');
-    expect(approvals).toHaveLength(0);
-  });
-
-  it('keeps a task conversation open for follow-up user messages', async () => {
-    const userA = await login(app, 'user-a@example.com');
-    const task = await createTask(app, userA.token, '帮我创建一封邮件');
-
-    await sendUserMessage(app, userA.token, task.id, task.userInput);
-    await sendUserMessage(app, userA.token, task.id, '再补充一下收件人是张三');
-
-    const messagesResponse = await app.inject({
-      method: 'GET',
-      url: `/api/tasks/${task.id}/messages`,
-      headers: { authorization: `Bearer ${userA.token}` },
-    });
-    const eventsResponse = await app.inject({
-      method: 'GET',
-      url: `/api/tasks/${task.id}/events`,
-      headers: { authorization: `Bearer ${userA.token}` },
-    });
-
-    const messages = messagesResponse.json<Message[]>();
     const events = eventsResponse.json<AgentEvent[]>();
 
-    expect(messages.map((message) => message.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
-    expect(messages.at(-1)?.content).toContain('再补充一下收件人是张三');
-    expect(events.at(-1)).toMatchObject({
-      type: 'task.followup.responded',
-      status: 'success',
+    expect(gateway.calls.map((call) => call.method)).toEqual(
+      expect.arrayContaining(['agents.create', 'sessions.create', 'chat.send']),
+    );
+    expect(messages.map((message) => message.role)).toEqual(['user', 'assistant']);
+    expect(messages.at(-1)).toMatchObject({
+      role: 'assistant',
+      status: 'completed',
     });
+    expect(messages.at(-1)?.content).toContain('Explain the uploaded notes');
+    expect(events.map((event) => event.type)).toContain('agent.answer.created');
   });
 
-  it('prevents another user from reading streams or approving approvals they do not own', async () => {
+  it('reuses the user agent for follow-up messages', async () => {
+    const userA = await login(app, 'user-a@example.com');
+    const task = await createTask(app, userA.token, 'Start a research thread');
+
+    await sendUserMessage(app, userA.token, task.id, task.userInput);
+    await waitForCondition(async () => {
+      const taskResponse = await app.inject({
+        method: 'GET',
+        url: `/api/tasks/${task.id}`,
+        headers: { authorization: `Bearer ${userA.token}` },
+      });
+      expect(taskResponse.json<Task>().status).toBe('completed');
+    });
+
+    await sendUserMessage(app, userA.token, task.id, 'Add implementation risks');
+    await waitForCondition(async () => {
+      const messagesResponse = await app.inject({
+        method: 'GET',
+        url: `/api/tasks/${task.id}/messages`,
+        headers: { authorization: `Bearer ${userA.token}` },
+      });
+      expect(messagesResponse.json<Message[]>()).toHaveLength(4);
+    });
+
+    const agentCreateCalls = gateway.calls.filter((call) => call.method === 'agents.create');
+    const chatSendCalls = gateway.calls.filter((call) => call.method === 'chat.send');
+
+    expect(agentCreateCalls).toHaveLength(1);
+    expect(chatSendCalls).toHaveLength(2);
+  });
+
+  it('rejects cross-user stream access', async () => {
     const userA = await login(app, 'user-a@example.com');
     const userB = await login(app, 'user-b@example.com');
-    const task = await createTask(app, userA.token, '下周三上午帮我预约张三开项目复盘会');
-    await sendUserMessage(app, userA.token, task.id, task.userInput);
-
-    const approvalsResponse = await app.inject({
-      method: 'GET',
-      url: `/api/tasks/${task.id}/approvals`,
-      headers: { authorization: `Bearer ${userA.token}` },
-    });
-    const approval = approvalsResponse.json<Approval[]>()[0];
-
-    const rejectedApproval = await app.inject({
-      method: 'POST',
-      url: `/api/approvals/${approval.id}/approve`,
-      headers: { authorization: `Bearer ${userB.token}` },
-    });
+    const task = await createTask(app, userA.token, 'Private task');
 
     const rejectedStream = await app.inject({
       method: 'GET',
       url: `/api/tasks/${task.id}/stream?token=${encodeURIComponent(userB.token)}`,
     });
 
-    expect(rejectedApproval.statusCode).toBe(404);
     expect(rejectedStream.statusCode).toBe(404);
-  });
-
-  it('approves owned approvals and completes the mock task', async () => {
-    const userA = await login(app, 'user-a@example.com');
-    const task = await createTask(app, userA.token, '下周三上午帮我预约张三开项目复盘会');
-    await sendUserMessage(app, userA.token, task.id, task.userInput);
-
-    const approvalsResponse = await app.inject({
-      method: 'GET',
-      url: `/api/tasks/${task.id}/approvals`,
-      headers: { authorization: `Bearer ${userA.token}` },
-    });
-    const approval = approvalsResponse.json<Approval[]>()[0];
-
-    const approveResponse = await app.inject({
-      method: 'POST',
-      url: `/api/approvals/${approval.id}/approve`,
-      headers: { authorization: `Bearer ${userA.token}` },
-    });
-
-    expect(approveResponse.statusCode).toBe(200);
-    expect(approveResponse.json<Approval>()).toMatchObject({
-      status: 'approved',
-      userId: userA.user.id,
-    });
-
-    const taskResponse = await app.inject({
-      method: 'GET',
-      url: `/api/tasks/${task.id}`,
-      headers: { authorization: `Bearer ${userA.token}` },
-    });
-    const eventsResponse = await app.inject({
-      method: 'GET',
-      url: `/api/tasks/${task.id}/events`,
-      headers: { authorization: `Bearer ${userA.token}` },
-    });
-    const messagesResponse = await app.inject({
-      method: 'GET',
-      url: `/api/tasks/${task.id}/messages`,
-      headers: { authorization: `Bearer ${userA.token}` },
-    });
-
-    expect(taskResponse.json<Task>().status).toBe('completed');
-    expect(eventsResponse.json<AgentEvent[]>().at(-1)?.title).toBe('任务已完成');
-    expect(messagesResponse.json<Message[]>().at(-1)).toMatchObject({
-      role: 'assistant',
-      content: '已确认创建会议，任务已完成。',
-    });
   });
 
   it('accepts plugin writes with service token and ignores spoofed userId in payloads', async () => {
     const userA = await login(app, 'user-a@example.com');
-    const task = await createTask(app, userA.token, '生成项目计划');
+    const task = await createTask(app, userA.token, 'Generate project plan');
 
     const eventResponse = await app.inject({
       method: 'POST',
@@ -342,7 +397,7 @@ describe('xuanzhi api mvp', () => {
       payload: {
         userId: 'user_b',
         type: 'plugin.event',
-        title: '插件事件',
+        title: 'Plugin event',
         status: 'success',
       },
     });
@@ -351,7 +406,7 @@ describe('xuanzhi api mvp', () => {
     expect(eventResponse.json<AgentEvent>()).toMatchObject({
       userId: userA.user.id,
       taskId: task.id,
-      title: '插件事件',
+      title: 'Plugin event',
     });
   });
 });

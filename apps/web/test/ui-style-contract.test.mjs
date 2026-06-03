@@ -100,7 +100,7 @@ test('task execution workspace is removed from the basic chat surface', async ()
   assert.doesNotMatch(chatPanel, /AgentTimeline|ArtifactPanel/, 'expected progress and artifact modules to be removed from the chat panel');
   assert.doesNotMatch(chatPanel, /events|artifacts|inline-task-activity|inline-final-artifacts/, 'expected the chat panel to keep only the basic message surface');
   assert.doesNotMatch(shell, /activeEvents|activeArtifacts|activeTaskFinished/, 'expected task progress and artifact view state to be removed');
-  assert.doesNotMatch(shell, /getTaskEvents|getTaskArtifacts|eventsByTask|artifactsByTask/, 'expected task progress and artifact snapshot loading to be removed');
+  assert.doesNotMatch(shell, /getTaskEvents|getTaskArtifacts|artifactsByTask/, 'expected artifact snapshot loading to be removed');
   assert.match(shell, /activePendingApprovals/, 'expected pending approvals to be derived for the active chat');
   assert.match(shell, /composer-approval-stack/, 'expected approval prompts above the composer');
   assert.equal(await exists('src/components/agent/AgentWorkspace.tsx'), false, 'expected the old right workspace component file to be deleted');
@@ -156,32 +156,28 @@ test('composer keeps only base input actions without capability toggles', async 
   assert.match(composer, /paperclip/, 'expected attachment action to remain');
 });
 
-test('new agent flow shows a template picker and isolates conversations per agent', async () => {
+test('agent flow uses the backend-owned user agent and isolates conversations per agent', async () => {
   const shell = await read('src/components/assistant/AssistantShell.tsx');
   const sidebar = await read('src/components/assistant/Sidebar.tsx');
   const picker = await read('src/components/assistant/AgentCreatePage.tsx');
-  const data = await read('src/data/assistantData.tsx');
   const assistantCss = await readAssistantStyles();
 
   assert.match(shell, /DEFAULT_AGENT_ID/, 'expected a stable default agent identity');
-  assert.match(shell, /localAgents/, 'expected locally-created agents to be tracked');
+  assert.match(shell, /agentApi\.listAgents/, 'expected agents to be loaded from the backend');
   assert.match(shell, /activeAgentId/, 'expected active agent selection state');
   assert.match(shell, /taskAgentMap/, 'expected tasks to be mapped to the owning agent');
   assert.match(shell, /activeAgentTasks/, 'expected the conversation list to be filtered by active agent');
   assert.match(shell, /showAgentCreatePage/, 'expected New Agent to route to the creation page');
-  assert.match(shell, /createAgentFromTemplate/, 'expected selecting a template to add an agent');
   assert.match(shell, /<AgentCreatePage/, 'expected the agent creation page to render in the main workspace');
 
   assert.match(sidebar, /agentItems\.map/, 'expected the sidebar to render multiple agents');
   assert.match(sidebar, /onAgentSelect/, 'expected clicking an agent to switch agent context');
-  assert.match(sidebar, /onCreateAgent/, 'expected the New Agent button to open the picker instead of a blank chat');
+  assert.match(sidebar, /onCreateAgent/, 'expected the agent setup button to open the profile wizard instead of a blank chat');
 
-  assert.match(picker, /agent-create-page/, 'expected a dedicated agent creation surface');
-  assert.match(picker, /agentTemplates\.map/, 'expected several template cards');
-  assert.match(picker, /agent-template-card/, 'expected selectable agent template cards');
-  assert.match(data, /export const agentTemplates/, 'expected mock agent template data');
-  assert.match(assistantCss, /agent-create-page/, 'expected creation page layout styles');
-  assert.match(assistantCss, /agent-template-card/, 'expected template card styles');
+  assert.match(picker, /agent-wizard-page/, 'expected a dedicated agent profile wizard surface');
+  assert.match(picker, /saveProfile/, 'expected the wizard to update the backend-owned agent profile');
+  assert.match(picker, /existingAgent/, 'expected the wizard to edit the current user agent');
+  assert.match(assistantCss, /agent-wizard-page/, 'expected profile wizard layout styles');
   assert.match(assistantCss, /agent-list/, 'expected sidebar multi-agent list styles');
 });
 
