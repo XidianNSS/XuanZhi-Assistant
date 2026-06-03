@@ -4,10 +4,12 @@ import { getOpenClawClient } from '../agents/openclawClient.js';
 import { runOpenClawSession } from '../agents/agentRunner.js';
 import type { MemoryStore } from '../repositories/memoryStore.js';
 import type { StreamHub } from '../realtime/streamHub.js';
+import type { SessionService } from './sessionService.js';
 
 export function createMessageService(
   store: MemoryStore,
   stream: StreamHub,
+  sessionService?: SessionService,
 ) {
   const handleRuntimeFailure = (task: Task, error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
@@ -74,7 +76,41 @@ export function createMessageService(
     },
 
     listMessages(taskId: string) {
-      return store.listMessages(taskId);
+      const local = store.listMessages(taskId);
+      if (local.length > 0) return local;
+
+      // Fallback: try loading from OpenClaw session JSONL on disk
+      if (sessionService) {
+        const task = store.tasks.get(taskId);
+        if (task?.sessionKey) {
+          const agent = store.getAgentByUserId(task.userId);
+          if (agent?.gatewayAgentId) {
+            const sessionId = sessionService.resolveSessionId(
+              agent.gatewayAgentId,
+              task.sessionKey,
+            );
+            if (sessionId) {
+              const sessionMessages = sessionService.readSessionMessages(
+                agent.gatewayAgentId,
+                sessionId,
+              );
+              if (sessionMessages.length > 0) {
+                return sessionMessages.map((sm) => ({
+                  id: sm.id,
+                  userId: task.userId,
+                  taskId: task.id,
+                  role: sm.role,
+                  content: sm.content,
+                  status: 'completed' as const,
+                  createdAt: sm.createdAt,
+                }));
+              }
+            }
+          }
+        }
+      }
+
+      return [];
     },
   };
 }

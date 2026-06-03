@@ -159,7 +159,9 @@
 
 - `/api/tasks` 改为来自 `sessions.list`。
 - 当前聊天流只保留运行时状态，历史任务从 OpenClaw session 投影。
-- 如果 OpenClaw 支持 `sessions.get` 或 `sessions.preview`，再补完整任务详情。
+- **已完成 (2026-06-03):** session 列表通过 `taskFromSession()` 投影到侧边栏。
+- **已完成 (2026-06-03):** 历史消息通过 `sessionService` 读取 JSONL fallback 实现，`messageService.listMessages()` 自动切换。
+- 如果 OpenClaw 支持 `sessions.get` 或 `sessions.preview`，则优先使用 RPC 替代磁盘读取。
 
 ### 阶段四：配置与记忆
 
@@ -171,7 +173,7 @@
 
 | 风险 | 处理 |
 |---|---|
-| OpenClaw 暂不支持完整 session detail | 先用 `sessions.list` 做列表投影，不伪造详情 |
+| OpenClaw 暂不支持完整 session detail | **已部分解决 (2026-06-03):** 新增 `sessionService` 直接读取 OpenClaw 磁盘 JSONL 文件获取历史消息。后续如 OpenClaw 提供 `sessions.get` RPC 则优先使用 |
 | `agents.files.set` 不支持任意 JSON 文件名 | 只写 OpenClaw 已验证支持的 Markdown 文件 |
 | 后端重启后本地会话 token 丢失 | 第一版接受重新登录；长期接 OpenClaw identity |
 | Gateway offline | 前端明确提示，不用本地数据库伪装可用 |

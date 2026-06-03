@@ -11,6 +11,8 @@ export type {
   LoginResponse,
   Message,
   MessagePlanStep,
+  SessionInfo,
+  SessionMessage,
   StreamEvent,
   Task,
   TaskIntent,

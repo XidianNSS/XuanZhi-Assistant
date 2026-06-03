@@ -2,7 +2,7 @@ import { authFetch } from './apiClient';
 
 import type { Approval, Task, TaskIntent } from '../types/protocol';
 
-export function createTask(input: { title?: string; userInput: string; intent?: TaskIntent }) {
+export function createTask(input: { agentId?: string; title?: string; userInput: string; intent?: TaskIntent }) {
   return authFetch<Task>('/api/tasks', {
     method: 'POST',
     body: JSON.stringify(input),

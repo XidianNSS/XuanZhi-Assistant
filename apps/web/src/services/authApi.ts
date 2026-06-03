@@ -2,14 +2,14 @@ import { authFetch } from './apiClient';
 
 import type { Agent, LoginResponse, User } from '../types/protocol';
 
-export function login(input: { email: string; password: string }) {
+export function login(input: { username: string; password: string }) {
   return authFetch<LoginResponse>('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify(input),
   });
 }
 
-export function register(input: { email: string; name: string; password: string }) {
+export function register(input: { username: string; name?: string; password: string }) {
   return authFetch<LoginResponse>('/api/auth/register', {
     method: 'POST',
     body: JSON.stringify(input),

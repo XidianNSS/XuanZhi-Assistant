@@ -2,8 +2,9 @@ export type UserRole = 'user' | 'admin';
 
 export type User = {
   id: string;
+  username: string;
   name: string;
-  email: string;
+  email?: string;
   role: UserRole;
   createdAt: string;
 };
@@ -31,6 +32,8 @@ export type MessagePlanStep = {
 export type Task = {
   id: string;
   userId: string;
+  agentId?: string;
+  sessionKey?: string;
   title: string;
   userInput: string;
   intent: TaskIntent;
@@ -112,8 +115,13 @@ export type LoginResponse = {
 };
 
 export type RegisterInput = {
-  email: string;
-  name: string;
+  username: string;
+  name?: string;
+  password: string;
+};
+
+export type LoginInput = {
+  username: string;
   password: string;
 };
 
@@ -165,4 +173,30 @@ export type Agent = {
   model?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type SessionInfo = {
+  sessionId: string;
+  sessionKey: string;
+  agentId?: string;
+  title: string;
+  status: string;
+  totalTokens?: number;
+  estimatedCostUsd?: number;
+  runtimeMs?: number;
+  modelProvider?: string;
+  model?: string;
+  startedAt?: string;
+  endedAt?: string;
+  parentSessionKey?: string;
+  childSessions?: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SessionMessage = {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  createdAt: string;
 };

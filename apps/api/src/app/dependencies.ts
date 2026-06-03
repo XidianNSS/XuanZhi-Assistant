@@ -7,12 +7,14 @@ import { createArtifactService } from '../services/artifactService.js';
 import { createAuthService } from '../services/authService.js';
 import { createEventService } from '../services/eventService.js';
 import { createMessageService } from '../services/messageService.js';
+import { createSessionService } from '../services/sessionService.js';
 import { createTaskService } from '../services/taskService.js';
 
 export function createAppDependencies(config: AppConfig = loadConfig()) {
   const store = new MemoryStore();
   const stream = new StreamHub();
   const agentService = createAgentService(store);
+  const sessionService = createSessionService(store);
 
   return {
     config,
@@ -24,7 +26,8 @@ export function createAppDependencies(config: AppConfig = loadConfig()) {
       artifacts: createArtifactService(store, stream),
       auth: createAuthService(store),
       events: createEventService(store, stream),
-      messages: createMessageService(store, stream),
+      messages: createMessageService(store, stream, sessionService),
+      sessions: sessionService,
       tasks: createTaskService(store, stream),
     },
   };

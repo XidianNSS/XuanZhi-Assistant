@@ -1,5 +1,7 @@
 import { hashSync, compareSync } from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 import type {
   Agent,
@@ -27,25 +29,52 @@ const BCRYPT_ROUNDS = 10;
 
 const DEV_PASSWORD_HASH = hashSync('dev-password', BCRYPT_ROUNDS);
 
+type AccountFile = {
+  version: 1;
+  users: Array<User & { passwordHash: string }>;
+};
+
+function shouldPersistAccounts() {
+  return process.env.VITEST !== 'true' && process.env.NODE_ENV !== 'test';
+}
+
+function getAccountFilePath() {
+  return process.env.XUANZHI_ACCOUNT_FILE?.trim() || join(process.cwd(), '.xuanzhi', 'accounts.json');
+}
+
+function readAccountFile(): AccountFile | undefined {
+  if (!shouldPersistAccounts()) return undefined;
+  const filePath = getAccountFilePath();
+  if (!existsSync(filePath)) return undefined;
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf8')) as AccountFile;
+  } catch {
+    return undefined;
+  }
+}
+
 export const testUsers: User[] = [
   {
     id: 'user_admin',
+    username: 'main',
     name: '管理员',
-    email: 'admin@example.com',
+    email: 'main@local.openclaw',
     role: 'admin' as UserRole,
     createdAt: nowIso(),
   },
   {
     id: 'user_a',
+    username: 'alice',
     name: '用户 A',
-    email: 'user-a@example.com',
+    email: 'alice@local.openclaw',
     role: 'user' as UserRole,
     createdAt: nowIso(),
   },
   {
     id: 'user_b',
+    username: 'bob',
     name: '用户 B',
-    email: 'user-b@example.com',
+    email: 'bob@local.openclaw',
     role: 'user' as UserRole,
     createdAt: nowIso(),
   },
@@ -64,10 +93,38 @@ export class MemoryStore {
   readonly approvals = new Map<string, Approval>();
   readonly agents = new Map<string, Agent>();
 
+  constructor() {
+    const accountFile = readAccountFile();
+    if (accountFile?.version === 1 && Array.isArray(accountFile.users)) {
+      this.users.clear();
+      this.passwordHashes.clear();
+      accountFile.users.forEach(({ passwordHash, ...user }) => {
+        this.users.set(user.id, user);
+        this.passwordHashes.set(user.id, passwordHash);
+      });
+      return;
+    }
+    this.persistAccounts();
+  }
+
+  private persistAccounts() {
+    if (!shouldPersistAccounts()) return;
+    const filePath = getAccountFilePath();
+    mkdirSync(dirname(filePath), { recursive: true });
+    const payload: AccountFile = {
+      version: 1,
+      users: [...this.users.values()].map((user) => ({
+        ...user,
+        passwordHash: this.passwordHashes.get(user.id) ?? '',
+      })),
+    };
+    writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8');
+  }
+
   // ── User ──
 
-  findUserByEmail(email: string) {
-    return [...this.users.values()].find((user) => user.email === email);
+  findUserByUsername(username: string) {
+    return [...this.users.values()].find((user) => user.username === username);
   }
 
   getUserById(userId: string) {
@@ -78,17 +135,20 @@ export class MemoryStore {
     return [...this.users.values()];
   }
 
-  createUser(input: { email: string; name: string; password: string; role?: UserRole }) {
+  createUser(input: { username: string; name?: string; password: string; role?: UserRole }) {
     const id = `user_${randomUUID()}`;
+    const username = input.username.trim();
     const user: User = {
       id,
-      name: input.name,
-      email: input.email,
+      username,
+      name: input.name?.trim() || username,
+      email: `${username}@local.openclaw`,
       role: input.role ?? 'user',
       createdAt: nowIso(),
     };
     this.users.set(id, user);
     this.passwordHashes.set(id, hashSync(input.password, BCRYPT_ROUNDS));
+    this.persistAccounts();
     return user;
   }
 
@@ -125,10 +185,19 @@ export class MemoryStore {
 
   // ── Task ──
 
-  createTask(input: { userId: string; title: string; userInput: string; intent: TaskIntent }) {
+  createTask(input: {
+    userId: string;
+    agentId?: string;
+    sessionKey?: string;
+    title: string;
+    userInput: string;
+    intent: TaskIntent;
+  }) {
     const task: Task = {
       id: `task_${randomUUID()}`,
       userId: input.userId,
+      agentId: input.agentId,
+      sessionKey: input.sessionKey,
       title: input.title,
       userInput: input.userInput,
       intent: input.intent,
@@ -138,6 +207,13 @@ export class MemoryStore {
     };
     this.tasks.set(task.id, task);
     return task;
+  }
+
+  upsertTask(task: Task) {
+    const current = this.tasks.get(task.id);
+    const next = current ? { ...task, status: current.status, updatedAt: task.updatedAt } : task;
+    this.tasks.set(next.id, next);
+    return next;
   }
 
   updateTaskStatus(taskId: string, status: TaskStatus) {

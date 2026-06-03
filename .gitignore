@@ -26,6 +26,8 @@ playwright-report/
 *.openclaw-device.json
 .openclaw-device.json
 **/.openclaw-device.json
+.xuanzhi/
+**/.xuanzhi/
 
 # Logs
 *.log

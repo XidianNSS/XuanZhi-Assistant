@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { FormEvent } from 'react';
 
 import { Alert, Button, Checkbox, Input, toast } from '../ui';
@@ -16,63 +16,28 @@ type AuthScreenProps = {
   gatewayState?: GatewayState;
   loading?: boolean;
   onCheckGateway?: () => Promise<void>;
-  onLogin: (values: { email: string; password: string }) => Promise<void>;
-  onRegister: (values: { email: string; name: string; password: string }) => Promise<void>;
+  onLogin: (values: { username: string; password: string }) => Promise<void>;
+  onRegister: (values: { username: string; name?: string; password: string }) => Promise<void>;
 };
-
-const recentAccountKey = 'xuanzhi.auth.recentAccounts';
 
 const initialForm = {
   confirmPassword: '',
-  email: '',
-  name: '',
+  displayName: '',
   password: '',
+  username: '',
 };
-
-function loadRecentAccounts() {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(recentAccountKey) ?? '[]') as unknown;
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === 'string' && item.includes('@')).slice(0, 5)
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveRecentAccount(email: string) {
-  const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail) return;
-  const next = [normalizedEmail, ...loadRecentAccounts().filter((item) => item !== normalizedEmail)].slice(0, 5);
-  window.localStorage.setItem(recentAccountKey, JSON.stringify(next));
-}
 
 export function AuthScreen({ gatewayState, loading, onCheckGateway, onLogin, onRegister }: AuthScreenProps) {
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [formValues, setFormValues] = useState(initialForm);
-  const [recentAccounts, setRecentAccounts] = useState<string[]>(() => loadRecentAccounts());
-
-  const selectedRecentAccount = useMemo(
-    () => recentAccounts.find((email) => email === formValues.email.trim().toLowerCase()),
-    [formValues.email, recentAccounts],
-  );
 
   const switchAuthMode = (nextMode: AuthMode) => {
     if (nextMode === authMode) return;
     setFormValues((current) => ({
       ...initialForm,
-      email: nextMode === 'login' ? current.email : '',
+      username: current.username,
     }));
     setAuthMode(nextMode);
-  };
-
-  const chooseAccount = (email: string) => {
-    setAuthMode('login');
-    setFormValues({
-      ...initialForm,
-      email,
-      password: '',
-    });
   };
 
   const updateField = (field: keyof typeof formValues, value: string) => {
@@ -81,25 +46,27 @@ export function AuthScreen({ gatewayState, loading, onCheckGateway, onLogin, onR
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const username = formValues.username.trim();
+    if (!username) {
+      toast.error('请输入用户名');
+      return;
+    }
+
     if (authMode === 'register') {
       if (formValues.password !== formValues.confirmPassword) {
         toast.error('两次输入的密码不一致');
         return;
       }
-      saveRecentAccount(formValues.email);
-      setRecentAccounts(loadRecentAccounts());
       void onRegister({
-        email: formValues.email.trim(),
-        name: formValues.name.trim(),
+        username,
+        name: formValues.displayName.trim() || username,
         password: formValues.password,
       });
       return;
     }
 
-    saveRecentAccount(formValues.email);
-    setRecentAccounts(loadRecentAccounts());
     void onLogin({
-      email: formValues.email.trim(),
+      username,
       password: formValues.password,
     });
   };
@@ -112,8 +79,8 @@ export function AuthScreen({ gatewayState, loading, onCheckGateway, onLogin, onR
         <div className="auth-visual">
           <ProductLogo />
           <div className="auth-intro">
-            <h2>小团队的安全 Agent 工作台</h2>
-            <p>先用团队账号登录，进入后系统会按当前用户加载对应的玄知 Agent 和 OpenClaw workspace。</p>
+            <h2>小团队 OpenClaw 助手工作台</h2>
+            <p>使用团队用户名登录。后端会按用户名切换对应的 OpenClaw agent 和 workspace。</p>
           </div>
         </div>
 
@@ -145,32 +112,13 @@ export function AuthScreen({ gatewayState, loading, onCheckGateway, onLogin, onR
           ) : null}
 
           <div className="auth-copy">
-            <h1>{authMode === 'login' ? '账号登录' : '创建团队账号'}</h1>
+            <h1>{authMode === 'login' ? '用户名登录' : '创建团队用户'}</h1>
             <p>
               {authMode === 'login'
-                ? '切换账号只会切换登录身份；进入后才展示该用户绑定的 Agent。'
-                : '注册成功后首次进入会完成个人 Agent 配置。'}
+                ? '登录页不选择 agent。进入后只显示当前用户绑定的 agent，避免团队成员之间串号。'
+                : '注册后首次进入会创建个人 agent，并进入初始化配置流程。'}
             </p>
           </div>
-
-          {authMode === 'login' && recentAccounts.length > 0 ? (
-            <div className="auth-team" aria-label="最近登录账号">
-              {recentAccounts.map((email) => (
-                <button
-                  className={`auth-member ${selectedRecentAccount === email ? 'is-selected' : ''}`}
-                  key={email}
-                  type="button"
-                  onClick={() => chooseAccount(email)}
-                >
-                  <span className="auth-member-avatar">{email.slice(0, 1).toUpperCase()}</span>
-                  <span>
-                    <strong>{email}</strong>
-                    <small>选择后请输入密码</small>
-                  </span>
-                </button>
-              ))}
-            </div>
-          ) : null}
 
           <div
             className={`auth-switch ${authMode === 'register' ? 'is-register' : ''}`}
@@ -193,40 +141,39 @@ export function AuthScreen({ gatewayState, loading, onCheckGateway, onLogin, onR
               className={`auth-switch-button ${authMode === 'register' ? 'is-active' : ''}`}
               onClick={() => switchAuthMode('register')}
             >
-              新账号
+              新用户
             </Button>
           </div>
 
           <form className="auth-form" onSubmit={submit}>
+            <label className="auth-field">
+              <span>用户名</span>
+              <Input
+                prefix={<Icon name="user" />}
+                placeholder="例如 main、alice、研发一组"
+                autoComplete="username"
+                required
+                value={formValues.username}
+                onChange={(event) => updateField('username', event.target.value)}
+              />
+            </label>
+
             <div
               className={`auth-extra-field ${authMode === 'register' ? 'is-visible' : ''}`}
               aria-hidden={authMode !== 'register'}
             >
               <label className="auth-field">
-                <span>姓名</span>
+                <span>显示名称</span>
                 <Input
                   prefix={<Icon name="user" />}
-                  placeholder="请输入姓名"
+                  placeholder="留空则使用用户名"
                   autoComplete="name"
                   disabled={authMode !== 'register'}
-                  required={authMode === 'register'}
-                  value={formValues.name}
-                  onChange={(event) => updateField('name', event.target.value)}
+                  value={formValues.displayName}
+                  onChange={(event) => updateField('displayName', event.target.value)}
                 />
               </label>
             </div>
-
-            <label className="auth-field">
-              <span>邮箱</span>
-              <Input
-                prefix={<Icon name="mail" />}
-                placeholder="name@company.com"
-                autoComplete="email"
-                required
-                value={formValues.email}
-                onChange={(event) => updateField('email', event.target.value)}
-              />
-            </label>
 
             <label className="auth-field">
               <span>密码</span>
@@ -259,10 +206,10 @@ export function AuthScreen({ gatewayState, loading, onCheckGateway, onLogin, onR
             </div>
 
             <div className="auth-options">
-              <Checkbox defaultChecked>{authMode === 'login' ? '记住这个账号' : '注册后创建我的 Agent'}</Checkbox>
+              <Checkbox defaultChecked>{authMode === 'login' ? '由后端切换我的 agent' : '注册后创建我的 agent'}</Checkbox>
               {authMode === 'login' ? (
                 <Button type="link" className="auth-link">
-                  忘记密码请联系管理员
+                  忘记密码请联系 main 管理员
                 </Button>
               ) : null}
             </div>

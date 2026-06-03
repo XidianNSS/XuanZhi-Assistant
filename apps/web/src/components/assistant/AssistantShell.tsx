@@ -21,6 +21,7 @@ import { toast } from '../ui';
 import { AgentCreatePage } from './AgentCreatePage';
 import { Sidebar } from './Sidebar';
 import type { SidebarAgentItem, WorkspaceKey } from './Sidebar';
+import { TeamAdminPage } from './TeamAdminPage';
 import { WorkspaceHeader } from './WorkspaceHeader';
 
 type AssistantShellProps = {
@@ -37,10 +38,14 @@ const DEFAULT_AGENT_ID = 'agent-default';
 const setupFlagPrefix = 'xuanzhi.agentSetup.pending.';
 const activeTaskStatuses = new Set<Task['status']>(['created', 'planning', 'running', 'waiting_approval']);
 
-type WorkspaceView = 'home' | 'chat' | 'agent-picker' | 'file';
+type WorkspaceView = 'home' | 'chat' | 'agent-picker' | 'file' | 'team';
 
 function isTaskStatusActive(status: Task['status']) {
   return activeTaskStatuses.has(status);
+}
+
+function getTaskAgentId(task: Task, taskAgentMap: Record<string, string>, fallbackAgentId: string) {
+  return task.agentId ?? taskAgentMap[task.id] ?? fallbackAgentId;
 }
 
 function agentToSidebarItem(agent: Agent, tasks: Task[], taskAgentMap: Record<string, string>): SidebarAgentItem {
@@ -53,7 +58,7 @@ function agentToSidebarItem(agent: Agent, tasks: Task[], taskAgentMap: Record<st
     avatar: agent.emoji ?? '🤖',
     tone: 'default',
     isRunning: tasks.some(
-      (task) => (taskAgentMap[task.id] ?? '') === agent.id && isTaskStatusActive(task.status),
+      (task) => getTaskAgentId(task, taskAgentMap, '') === agent.id && isTaskStatusActive(task.status),
     ),
   };
 }
@@ -186,7 +191,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
           setTaskAgentMap((current) => {
             const next = { ...current };
             nextTasks.forEach((task) => {
-              next[task.id] ??= agents[0]?.id ?? DEFAULT_AGENT_ID;
+              next[task.id] = task.agentId ?? next[task.id] ?? agents[0]?.id ?? DEFAULT_AGENT_ID;
             });
             return next;
           });
@@ -203,7 +208,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
   }, [closeStream]);
 
   const activeAgentTasks = useMemo(
-    () => tasks.filter((task) => (taskAgentMap[task.id] ?? activeAgentId) === activeAgentId),
+    () => tasks.filter((task) => getTaskAgentId(task, taskAgentMap, activeAgentId) === activeAgentId),
     [activeAgentId, taskAgentMap, tasks],
   );
 
@@ -227,6 +232,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
           activeTaskId && activeAgentTasks.some((item) => item.id === activeTaskId)
             ? activeAgentTasks.find((item) => item.id === activeTaskId)
             : await taskApi.createTask({
+                agentId: activeAgentId,
                 title: question.slice(0, 28),
                 userInput: question,
                 intent: 'meeting',
@@ -239,7 +245,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         setTasks((current) => upsertById(current, task));
         setTaskAgentMap((current) => ({
           ...current,
-          [task.id]: current[task.id] ?? activeAgentId,
+          [task.id]: task.agentId ?? current[task.id] ?? activeAgentId,
         }));
 
         if (task.id !== activeTaskId) {
@@ -281,11 +287,19 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         return;
       }
 
-      if (workspaceView === 'file') {
+      if (workspace === 'team' && currentUser.role === 'admin') {
+        closeStream();
+        setActiveTaskId(undefined);
+        setInputValue('');
+        setWorkspaceView('team');
+        return;
+      }
+
+      if (workspaceView === 'file' || workspaceView === 'team') {
         setWorkspaceView('home');
       }
     },
-    [showFileSpace, workspaceView],
+    [closeStream, currentUser.role, showFileSpace, workspaceView],
   );
 
   const showAgentCreatePage = useCallback(() => {
@@ -386,7 +400,8 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
   const isChatting = Boolean(activeTask);
   const isAgentPicker = workspaceView === 'agent-picker' || needsAgentSetup;
   const isFileSpace = workspaceView === 'file';
-  const activeWorkspace: WorkspaceKey = isFileSpace ? 'file' : 'chat';
+  const isTeamSpace = workspaceView === 'team';
+  const activeWorkspace: WorkspaceKey = isTeamSpace ? 'team' : isFileSpace ? 'file' : 'chat';
 
   return (
     <main className={`assistant-shell ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
@@ -406,8 +421,8 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         onLogout={handleLogout}
       />
 
-      <section className={`assistant-main ${isFileSpace ? 'is-file-space' : isChatting ? 'is-chatting' : 'is-home'}`}>
-        {isFileSpace ? null : (
+      <section className={`assistant-main ${isFileSpace ? 'is-file-space' : isTeamSpace ? 'is-team-space' : isChatting ? 'is-chatting' : 'is-home'}`}>
+        {isFileSpace || isTeamSpace ? null : (
           <WorkspaceHeader
             sidebarCollapsed={sidebarCollapsed}
             task={activeTask}
@@ -416,9 +431,11 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
           />
         )}
 
-        <div className={`workspace-body ${isFileSpace ? 'is-file' : isChatting ? 'is-task' : ''}`}>
+        <div className={`workspace-body ${isFileSpace ? 'is-file' : isTeamSpace ? 'is-team' : isChatting ? 'is-task' : ''}`}>
           {isFileSpace ? (
             <FileSpacePage />
+          ) : isTeamSpace ? (
+            <TeamAdminPage currentUser={currentUser} />
           ) : isAgentPicker ? (
             <AgentCreatePage
                 currentUserId={currentUser.id}
@@ -449,7 +466,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
           )}
         </div>
 
-        {isChatting && !isFileSpace ? (
+        {isChatting && !isFileSpace && !isTeamSpace ? (
           <footer className="composer-area">
             <div className="composer-stack">
               {activePendingApprovals.length > 0 ? (

@@ -76,7 +76,7 @@ function App() {
     };
   }, [token]);
 
-  const login = useCallback(async (values: { email: string; password: string }) => {
+  const login = useCallback(async (values: { username: string; password: string }) => {
     setAuthLoading(true);
     try {
       const response = await authApi.login(values);
@@ -90,7 +90,7 @@ function App() {
     }
   }, []);
 
-  const register = useCallback(async (values: { email: string; name: string; password: string }) => {
+  const register = useCallback(async (values: { username: string; name?: string; password: string }) => {
     setAuthLoading(true);
     try {
       const response = await authApi.register(values);

@@ -9,6 +9,7 @@ export function createAgentService(store: MemoryStore) {
       emoji?: string;
       model?: string;
       workspace?: string;
+      gatewayAgentId?: string;
     }) {
       return store.createAgent({ userId, name, ...opts });
     },
@@ -21,7 +22,7 @@ export function createAgentService(store: MemoryStore) {
       return store.getAgentByUserId(userId);
     },
 
-    ensureAgent(userId: string, name: string, opts?: { workspace?: string }) {
+    ensureAgent(userId: string, name: string, opts?: { workspace?: string; gatewayAgentId?: string }) {
       const existing = store.getAgentByUserId(userId);
       if (existing) return existing;
       return store.createAgent({ userId, name, ...opts });

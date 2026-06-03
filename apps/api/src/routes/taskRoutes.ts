@@ -13,13 +13,20 @@ export function registerTaskRoutes(app: FastifyInstance, dependencies: AppDepend
     if (!auth) {
       return;
     }
-    const body = request.body as { title?: string; userInput?: string; intent?: TaskIntent };
+    const body = request.body as { agentId?: string; title?: string; userInput?: string; intent?: TaskIntent };
     const userInput = body.userInput?.trim();
     if (!userInput) {
       return reply.status(400).send({ message: '请输入任务内容' });
     }
+    if (body.agentId) {
+      const agent = dependencies.services.agents.getAgent(body.agentId);
+      if (!agent || (agent.userId !== auth.user.id && auth.user.role !== 'admin')) {
+        return reply.status(404).send({ message: 'Agent 不存在' });
+      }
+    }
     const task = dependencies.services.tasks.createTask({
       userId: auth.user.id,
+      agentId: body.agentId,
       title: body.title,
       userInput,
       intent: normalizeTaskIntent(body.intent),

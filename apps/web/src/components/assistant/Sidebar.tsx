@@ -22,7 +22,7 @@ type SidebarProps = {
   onLogout: () => void;
 };
 
-export type WorkspaceKey = 'chat' | 'file';
+export type WorkspaceKey = 'chat' | 'file' | 'team';
 
 export type SidebarAgentItem = {
   id: string;
@@ -39,9 +39,13 @@ function isTaskActive(status: Task['status']) {
   return activeTaskStatuses.has(status);
 }
 
-const navRailItems: Array<{ key: WorkspaceKey; label: string; icon: ReactNode }> = [
+const baseNavRailItems: Array<{ key: WorkspaceKey; label: string; icon: ReactNode }> = [
   { key: 'chat', label: '对话', icon: <Icon name="message" /> },
   { key: 'file', label: '文件', icon: <Icon name="file-text" /> },
+];
+
+const adminNavRailItems: Array<{ key: WorkspaceKey; label: string; icon: ReactNode }> = [
+  { key: 'team', label: '团队', icon: <Icon name="database" /> },
 ];
 
 const fileCategories = [
@@ -226,21 +230,30 @@ export function Sidebar({
   };
 
   const hasActiveTask = agentItems.some((agent) => agent.isRunning);
+  const navRailItems = currentUser.role === 'admin'
+    ? [...baseNavRailItems, ...adminNavRailItems]
+    : baseNavRailItems;
 
   const conversationItems = tasks.map((task) => {
     const taskActive = isTaskActive(task.status);
+    const isSessionTask = task.id.startsWith('session_');
 
     return {
       key: task.id,
       label: (
         <span className="conversation-title">
           <span className="conversation-title-text">{task.title}</span>
+          {isSessionTask ? (
+            <span className="conversation-badge" title="OpenClaw 历史会话">历史</span>
+          ) : null}
         </span>
       ),
       icon: taskActive ? (
         <span className="conversation-item-spinner" aria-label="任务进行中">
           <Icon name="loader" />
         </span>
+      ) : isSessionTask ? (
+        <Icon name="clock" />
       ) : (
         <Icon name="message" />
       ),
@@ -282,6 +295,13 @@ export function Sidebar({
       <div className="assistant-sidebar-panel" aria-hidden={collapsed}>
         {activeWorkspace === 'file' ? (
           <FileSidebarPanel />
+        ) : activeWorkspace === 'team' ? (
+          <div className="file-sidebar-panel">
+            <Text className="file-sidebar-title" strong>
+              团队管理
+            </Text>
+            <Text type="secondary">查看用户、Agent 和 workspace 绑定关系。</Text>
+          </div>
         ) : (
           <>
             <Input className="sidebar-search" prefix={<Icon name="search" />} placeholder="搜索" aria-label="搜索会话" />

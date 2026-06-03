@@ -2,33 +2,34 @@ import type { LoginResponse } from '@xuanzhi/shared/protocol';
 
 import type { MemoryStore } from '../repositories/memoryStore.js';
 
+function normalizeUsername(username: string | undefined) {
+  return username?.trim().normalize('NFKC');
+}
+
 export function createAuthService(store: MemoryStore) {
   return {
-    register(email: string | undefined, name: string | undefined, password: string | undefined) {
-      const normalizedEmail = email?.trim().toLowerCase();
-      if (!normalizedEmail?.includes('@')) {
-        return { error: '邮箱格式不正确' as const };
-      }
-      if (!name?.trim()) {
-        return { error: '请输入用户名' as const };
+    register(username: string | undefined, name: string | undefined, password: string | undefined) {
+      const normalizedUsername = normalizeUsername(username);
+      if (!normalizedUsername || normalizedUsername.length < 2 || normalizedUsername.length > 32) {
+        return { error: '用户名需要 2-32 个字符' as const };
       }
       if (!password || password.length < 6) {
         return { error: '密码至少需要 6 位' as const };
       }
-      if (store.findUserByEmail(normalizedEmail)) {
-        return { error: '该邮箱已被注册' as const };
+      if (store.findUserByUsername(normalizedUsername)) {
+        return { error: '该用户名已被注册' as const };
       }
 
-      const user = store.createUser({ email: normalizedEmail, name: name.trim(), password });
+      const user = store.createUser({ username: normalizedUsername, name: name?.trim(), password });
       const session = store.createSession(user.id);
 
       const result: LoginResponse = { token: session.token, user };
       return { data: result };
     },
 
-    login(email: string | undefined, password: string | undefined): LoginResponse | undefined {
-      const normalizedEmail = email?.trim().toLowerCase();
-      const user = normalizedEmail ? store.findUserByEmail(normalizedEmail) : undefined;
+    login(username: string | undefined, password: string | undefined): LoginResponse | undefined {
+      const normalizedUsername = normalizeUsername(username);
+      const user = normalizedUsername ? store.findUserByUsername(normalizedUsername) : undefined;
       if (!user || !password) {
         return undefined;
       }

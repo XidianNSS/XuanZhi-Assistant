@@ -295,6 +295,10 @@ async function ensureSession(
   agent: AgentHandle,
   task: Task,
 ): Promise<{ key: string }> {
+  if (task.sessionKey) {
+    return { key: task.sessionKey };
+  }
+
   // Create/reuse main session. Using key "main" — the Gateway resolves it to
   // "agent:{gatewayAgentId}:main" and returns the canonical key in the response.
   const mainResult = await client.request<{ key: string }>('sessions.create', {
