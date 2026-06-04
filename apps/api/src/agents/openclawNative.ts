@@ -16,6 +16,8 @@ export type OpenClawSessionRow = {
   sessionKey?: string;
   title?: string;
   name?: string;
+  label?: string;
+  displayName?: string;
   status?: string;
   mode?: string;
   createdAt?: string | number;

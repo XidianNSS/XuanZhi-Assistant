@@ -54,7 +54,7 @@ export function createMessageService(
       // 所有消息走 OpenClaw Gateway Agent
       if (message.role === 'user') {
         const client = getOpenClawClient();
-        const agent = store.getAgentByUserId(task.userId);
+        const agent = task.agentId ? store.getAgent(task.agentId) : store.getAgentByUserId(task.userId);
 
         if (client.isConnected()) {
           const isFollowup = !!agent?.gatewayAgentId;
@@ -65,7 +65,7 @@ export function createMessageService(
           // OpenClaw 未连接，先触发连接再执行
           runAgent(task, async () => {
             await client.connect();
-            const freshAgent = store.getAgentByUserId(task.userId);
+            const freshAgent = task.agentId ? store.getAgent(task.agentId) : store.getAgentByUserId(task.userId);
             const isFollowup = !!freshAgent?.gatewayAgentId;
             await runOpenClawSession(task, message.content, store, stream, isFollowup);
           });
@@ -83,7 +83,7 @@ export function createMessageService(
       if (sessionService) {
         const task = store.tasks.get(taskId);
         if (task?.sessionKey) {
-          const agent = store.getAgentByUserId(task.userId);
+          const agent = task.agentId ? store.getAgent(task.agentId) : store.getAgentByUserId(task.userId);
           if (agent?.gatewayAgentId) {
             const sessionId = sessionService.resolveSessionId(
               agent.gatewayAgentId,

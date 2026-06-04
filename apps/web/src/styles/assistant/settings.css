@@ -239,3 +239,80 @@
   color: #71717a;
   font-size: 13px;
 }
+
+.openclaw-profile-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.openclaw-profile-status-main,
+.openclaw-profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.openclaw-profile-status-main > div {
+  display: grid;
+  gap: 2px;
+}
+
+.openclaw-profile-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #f59e0b;
+}
+
+.openclaw-profile-dot.is-ready {
+  background: #16a34a;
+}
+
+.openclaw-profile-dot.is-empty {
+  background: #a1a1aa;
+}
+
+.openclaw-profile-file-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0 14px;
+}
+
+.openclaw-profile-file {
+  display: grid;
+  gap: 5px;
+  min-height: 78px;
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.openclaw-profile-file.is-available {
+  border-color: #bbf7d0;
+  background: #f7fef9;
+}
+
+.openclaw-profile-file-name {
+  color: #18181b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.openclaw-profile-file-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #71717a;
+  font-size: 12px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}

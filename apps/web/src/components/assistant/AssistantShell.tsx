@@ -14,6 +14,7 @@ import {
 import type { Agent, AgentEvent, Approval, Message, StreamEvent, Task, User } from '../../types/protocol';
 import { ApprovalCard } from '../chat/ApprovalCard';
 import { ChatComposer } from '../chat/ChatComposer';
+import type { ComposerCommand } from '../chat/ChatComposer';
 import { ChatHome } from '../chat/ChatHome';
 import { ChatPanel } from '../chat/ChatPanel';
 import { FileSpacePage } from '../files/FileSpacePage';
@@ -46,6 +47,10 @@ function isTaskStatusActive(status: Task['status']) {
 
 function getTaskAgentId(task: Task, taskAgentMap: Record<string, string>, fallbackAgentId: string) {
   return task.agentId ?? taskAgentMap[task.id] ?? fallbackAgentId;
+}
+
+function isMainTask(task: Task) {
+  return Boolean(task.sessionKey?.endsWith(':main'));
 }
 
 function agentToSidebarItem(agent: Agent, tasks: Task[], taskAgentMap: Record<string, string>): SidebarAgentItem {
@@ -235,7 +240,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
                 agentId: activeAgentId,
                 title: question.slice(0, 28),
                 userInput: question,
-                intent: 'meeting',
+                intent: 'general',
               });
 
         if (!task) {
@@ -266,12 +271,67 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
     [activeAgentId, activeAgentTasks, activeTaskId, loadTaskSnapshot, openTask],
   );
 
-  const createConversation = useCallback(() => {
+  const submitCommand = useCallback(
+    (command: ComposerCommand) => {
+      if (command === '/reset') {
+        const confirmed = window.confirm('确定要向当前 OpenClaw 会话发送 /reset 吗？这会让当前会话重新开始上下文。');
+        if (!confirmed) {
+          return;
+        }
+      }
+      void submitMessage(command);
+    },
+    [submitMessage],
+  );
+
+  const createConversation = useCallback(async () => {
     closeStream();
-    setActiveTaskId(undefined);
     setInputValue('');
-    setWorkspaceView('home');
-  }, [closeStream]);
+    if (!activeAgentId || activeAgentId === DEFAULT_AGENT_ID) {
+      setActiveTaskId(undefined);
+      setWorkspaceView('home');
+      return;
+    }
+    try {
+      const task = await agentApi.createConversation(activeAgentId);
+      setTasks((current) => upsertById(current, task));
+      setTaskAgentMap((current) => ({
+        ...current,
+        [task.id]: task.agentId ?? current[task.id] ?? activeAgentId,
+      }));
+      await openTask(task.id);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '创建新对话失败');
+      setActiveTaskId(undefined);
+      setWorkspaceView('home');
+    }
+  }, [activeAgentId, closeStream, openTask]);
+
+  const openAgentMainTask = useCallback(
+    async (agentId: string) => {
+      closeStream();
+      setActiveAgentId(agentId);
+      setInputValue('');
+      try {
+        const existingMainTask = tasks.find((task) => getTaskAgentId(task, taskAgentMap, agentId) === agentId && isMainTask(task));
+        if (existingMainTask) {
+          await openTask(existingMainTask.id);
+          return;
+        }
+        const task = await agentApi.openMainTask(agentId);
+        setTasks((current) => upsertById(current, task));
+        setTaskAgentMap((current) => ({
+          ...current,
+          [task.id]: task.agentId ?? current[task.id] ?? agentId,
+        }));
+        await openTask(task.id);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : '打开 Agent 主对话失败');
+        setWorkspaceView('home');
+      }
+    },
+    [closeStream, openTask, taskAgentMap, tasks],
+  );
 
   const showFileSpace = useCallback(() => {
     closeStream();
@@ -308,17 +368,6 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
     setInputValue('');
     setWorkspaceView('agent-picker');
   }, [closeStream]);
-
-  const selectAgent = useCallback(
-    (agentId: string) => {
-      closeStream();
-      setActiveAgentId(agentId);
-      setActiveTaskId(undefined);
-      setInputValue('');
-      setWorkspaceView('home');
-    },
-    [closeStream],
-  );
 
   const handleAgentCreated = useCallback(async (agentId: string) => {
     // Refresh agent list from backend
@@ -412,9 +461,9 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         agentItems={agentItems}
         collapsed={sidebarCollapsed}
         currentUser={currentUser}
-        tasks={activeAgentTasks}
+        tasks={activeAgentTasks.filter((task) => !isMainTask(task))}
         onActiveChange={(taskId) => void openTask(taskId)}
-        onAgentSelect={selectAgent}
+        onOpenAgentMain={openAgentMainTask}
         onCreateAgent={showAgentCreatePage}
         onCreateConversation={createConversation}
         onWorkspaceChange={handleWorkspaceChange}
@@ -426,7 +475,6 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
           <WorkspaceHeader
             sidebarCollapsed={sidebarCollapsed}
             task={activeTask}
-            onCreateConversation={createConversation}
             onToggleSidebar={toggleSidebar}
           />
         )}
@@ -460,6 +508,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
             <ChatHome
               inputValue={inputValue}
               onInputChange={setInputValue}
+              onCommand={submitCommand}
               onPromptSelect={selectPrompt}
               onSubmitMessage={submitMessage}
             />
@@ -482,7 +531,13 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
                   ))}
                 </div>
               ) : null}
-              <ChatComposer value={inputValue} variant="chat" onChange={setInputValue} onSubmit={submitMessage} />
+              <ChatComposer
+                value={inputValue}
+                variant="chat"
+                onChange={setInputValue}
+                onCommand={submitCommand}
+                onSubmit={submitMessage}
+              />
             </div>
           </footer>
         ) : null}

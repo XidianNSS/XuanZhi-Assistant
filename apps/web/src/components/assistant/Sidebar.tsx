@@ -15,7 +15,7 @@ type SidebarProps = {
   currentUser: User;
   tasks: Task[];
   onActiveChange: (taskId: string) => void;
-  onAgentSelect: (agentId: string) => void;
+  onOpenAgentMain: (agentId: string) => void;
   onCreateAgent: () => void;
   onCreateConversation: () => void;
   onWorkspaceChange: (workspace: WorkspaceKey) => void;
@@ -37,6 +37,30 @@ const activeTaskStatuses = new Set<Task['status']>(['created', 'planning', 'runn
 
 function isTaskActive(status: Task['status']) {
   return activeTaskStatuses.has(status);
+}
+
+function formatConversationTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  const now = new Date();
+  const sameDay = date.toDateString() === now.toDateString();
+  if (sameDay) {
+    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) {
+    return '昨天';
+  }
+
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return sameYear
+    ? `${date.getMonth() + 1}/${date.getDate()}`
+    : `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
 }
 
 const baseNavRailItems: Array<{ key: WorkspaceKey; label: string; icon: ReactNode }> = [
@@ -217,7 +241,7 @@ export function Sidebar({
   currentUser,
   tasks,
   onActiveChange,
-  onAgentSelect,
+  onOpenAgentMain,
   onCreateAgent,
   onCreateConversation,
   onWorkspaceChange,
@@ -234,7 +258,9 @@ export function Sidebar({
     ? [...baseNavRailItems, ...adminNavRailItems]
     : baseNavRailItems;
 
-  const conversationItems = tasks.map((task) => {
+  const conversationItems = [...tasks]
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .map((task) => {
     const taskActive = isTaskActive(task.status);
     const isSessionTask = task.id.startsWith('session_');
 
@@ -242,10 +268,8 @@ export function Sidebar({
       key: task.id,
       label: (
         <span className="conversation-title">
+          <span className="conversation-title-time">{formatConversationTime(task.updatedAt)}</span>
           <span className="conversation-title-text">{task.title}</span>
-          {isSessionTask ? (
-            <span className="conversation-badge" title="OpenClaw 历史会话">历史</span>
-          ) : null}
         </span>
       ),
       icon: taskActive ? (
@@ -304,13 +328,36 @@ export function Sidebar({
           </div>
         ) : (
           <>
+            <div className="sidebar-panel-header">
+              <div>
+                <Text className="sidebar-panel-title" strong>
+                  对话
+                </Text>
+                <Text className="sidebar-panel-subtitle" type="secondary">
+                  OpenClaw sessions
+                </Text>
+              </div>
+              <span className="sidebar-count-badge">{tasks.length}</span>
+            </div>
             <Input className="sidebar-search" prefix={<Icon name="search" />} placeholder="搜索" aria-label="搜索会话" />
 
-            {currentUser.role === 'admin' && (
-              <Button icon={<Icon name="plus" />} className="new-chat-button" onClick={onCreateAgent}>
-                新建 Agent
+            <div className="sidebar-action-stack">
+              <Button icon={<Icon name="plus" />} className="new-chat-button" onClick={onCreateConversation}>
+                <span className="new-chat-label">新对话</span>
+                <span className="new-chat-hint">Session</span>
               </Button>
-            )}
+
+              {currentUser.role === 'admin' && (
+                <Button icon={<Icon name="robot" />} className="new-agent-button" onClick={onCreateAgent}>
+                  新建 Agent
+                </Button>
+              )}
+            </div>
+
+            <div className="sidebar-section-row">
+              <Text strong>Agent</Text>
+              <Text type="secondary">点击打开 main</Text>
+            </div>
 
             <div className="agent-list" aria-label="Agent 列表" data-has-active-task={hasActiveTask ? 'true' : 'false'}>
               {agentItems.map((agent) => {
@@ -327,13 +374,9 @@ export function Sidebar({
                       .filter(Boolean)
                       .join(' ')}
                     type="button"
-                    onClick={() => {
-                      if (selected) {
-                        onCreateConversation();
-                        return;
-                      }
-                      onAgentSelect(agent.id);
-                    }}
+                    title="打开主对话"
+                    aria-label={`打开 ${agent.name} 的主对话`}
+                    onClick={() => onOpenAgentMain(agent.id)}
                   >
                     <span className="agent-card-avatar-wrap">
                       <span className={`agent-card-avatar is-${agent.tone}`}>
@@ -352,6 +395,11 @@ export function Sidebar({
                   </button>
                 );
               })}
+            </div>
+
+            <div className="sidebar-section-row conversation-section-row">
+              <Text strong>Sessions</Text>
+              <Text type="secondary">按时间排序</Text>
             </div>
 
             <Conversations

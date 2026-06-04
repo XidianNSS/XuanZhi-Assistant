@@ -230,6 +230,20 @@ export class MemoryStore {
     return updated;
   }
 
+  updateTaskSessionKey(taskId: string, sessionKey: string) {
+    const task = this.tasks.get(taskId);
+    if (!task) {
+      return undefined;
+    }
+    const updated: Task = {
+      ...task,
+      sessionKey,
+      updatedAt: nowIso(),
+    };
+    this.tasks.set(taskId, updated);
+    return updated;
+  }
+
   listTasksForUser(userId: string) {
     return [...this.tasks.values()]
       .filter((task) => task.userId === userId)

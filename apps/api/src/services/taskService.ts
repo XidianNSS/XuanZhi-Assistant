@@ -34,6 +34,8 @@ export function createTaskService(store: MemoryStore, stream: StreamHub) {
       const taskId = key.slice(markerIndex + marker.length);
       if (taskId.startsWith('task_')) return taskId;
     }
+    const taskId = key.match(/task_[a-zA-Z0-9-]+/)?.[0];
+    if (taskId) return taskId;
     return `session_${key.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 96)}`;
   }
 
@@ -51,7 +53,16 @@ export function createTaskService(store: MemoryStore, stream: StreamHub) {
   function taskFromSession(session: OpenClawSessionRow, agent: Agent): Task {
     const key = getSessionKey(session);
     const updatedAt = isoFromSessionDate(session.updatedAt ?? session.createdAt);
-    const title = session.title?.trim() || session.name?.trim() || key.split(':').at(-1) || 'OpenClaw session';
+    const fallbackTitle = key.endsWith(':main')
+      ? `${agent.name} 的主对话`
+      : `OpenClaw 会话 ${session.sessionKey?.slice(0, 8) || session.id?.slice(0, 8) || key.split(':').at(-1) || ''}`.trim();
+    const title =
+      session.displayName?.trim()
+      || session.label?.trim()
+      || session.title?.trim()
+      || session.name?.trim()
+      || fallbackTitle
+      || 'OpenClaw session';
     return {
       id: taskIdFromSession(session, agent),
       userId: agent.userId,

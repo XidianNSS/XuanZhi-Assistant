@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { Button, Text, toast } from '../ui';
 import * as agentApi from '../../services/agentApi';
+import type { OpenClawAgentProfile, OpenClawProfileFile } from '../../services/agentApi';
 import type { Agent, XuanzhiAgentProfile } from '../../types/protocol';
 
 type AgentProfilePanelProps = {
@@ -15,12 +16,38 @@ const EXPERIENCE_LABELS: Record<string, string> = {
   expert: '专家',
 };
 
+function fileSummary(file: OpenClawProfileFile) {
+  if (!file.available) {
+    return file.error ? `读取失败：${file.error}` : '尚未写入';
+  }
+  const lines = file.content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#') && !line.startsWith('---'))
+    .slice(0, 2);
+  return lines.join(' · ') || '已写入 OpenClaw workspace';
+}
+
 export function AgentProfilePanel({ currentUserId, isAdmin }: AgentProfilePanelProps) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [openClawProfiles, setOpenClawProfiles] = useState<Record<string, OpenClawAgentProfile>>({});
+  const [openClawLoading, setOpenClawLoading] = useState<Record<string, boolean>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editProfile, setEditProfile] = useState<XuanzhiAgentProfile | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const loadOpenClawProfile = async (agentId: string) => {
+    setOpenClawLoading((current) => ({ ...current, [agentId]: true }));
+    try {
+      const profile = await agentApi.getOpenClawAgentProfile(agentId);
+      setOpenClawProfiles((current) => ({ ...current, [agentId]: profile }));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '读取 OpenClaw 配置失败');
+    } finally {
+      setOpenClawLoading((current) => ({ ...current, [agentId]: false }));
+    }
+  };
 
   useEffect(() => {
     agentApi
@@ -31,6 +58,14 @@ export function AgentProfilePanel({ currentUserId, isAdmin }: AgentProfilePanelP
   }, []);
 
   const visibleAgents = isAdmin ? agents : agents.filter((agent) => agent.userId === currentUserId);
+
+  useEffect(() => {
+    visibleAgents.forEach((agent) => {
+      if (!openClawProfiles[agent.id] && !openClawLoading[agent.id]) {
+        void loadOpenClawProfile(agent.id);
+      }
+    });
+  }, [visibleAgents.map((agent) => agent.id).join('|')]);
 
   const startEdit = (agent: Agent) => {
     if (!agent.profile) return;
@@ -44,10 +79,24 @@ export function AgentProfilePanel({ currentUserId, isAdmin }: AgentProfilePanelP
     try {
       const updated = await agentApi.updateAgentProfile(agentId, editProfile);
       setAgents((current) => current.map((agent) => (agent.id === agentId ? updated : agent)));
+      await loadOpenClawProfile(agentId);
       setEditingId(null);
       setEditProfile(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const syncProfile = async (agentId: string) => {
+    setSaving(true);
+    try {
+      const updated = await agentApi.syncAgentProfile(agentId);
+      setAgents((current) => current.map((agent) => (agent.id === agentId ? updated : agent)));
+      await loadOpenClawProfile(agentId);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '同步失败');
     } finally {
       setSaving(false);
     }
@@ -66,6 +115,9 @@ export function AgentProfilePanel({ currentUserId, isAdmin }: AgentProfilePanelP
       {visibleAgents.map((agent) => {
         const profile = agent.profile;
         const isEditing = editingId === agent.id;
+        const openClawProfile = openClawProfiles[agent.id];
+        const files = openClawProfile?.files ?? [];
+        const readyFileCount = files.filter((file) => file.available).length;
 
         return (
           <div key={agent.id} className="profile-section">
@@ -88,6 +140,39 @@ export function AgentProfilePanel({ currentUserId, isAdmin }: AgentProfilePanelP
                 </div>
               ) : null}
             </div>
+
+            <div className="openclaw-profile-status">
+              <div className="openclaw-profile-status-main">
+                <span className={`openclaw-profile-dot ${readyFileCount === 0 ? 'is-empty' : readyFileCount === files.length ? 'is-ready' : 'is-partial'}`} />
+                <div>
+                  <Text strong>OpenClaw 启动上下文</Text>
+                  <Text type="secondary">
+                    {openClawLoading[agent.id]
+                      ? '正在读取 workspace 文件...'
+                      : `${readyFileCount}/${files.length || 4} 个 profile 文件已写入`}
+                  </Text>
+                </div>
+              </div>
+              <div className="openclaw-profile-actions">
+                <Button size="small" onClick={() => void loadOpenClawProfile(agent.id)}>
+                  刷新
+                </Button>
+                <Button size="small" type="primary" disabled={!profile} loading={saving} onClick={() => void syncProfile(agent.id)}>
+                  重新同步
+                </Button>
+              </div>
+            </div>
+
+            {files.length > 0 ? (
+              <div className="openclaw-profile-file-grid">
+                {files.map((file) => (
+                  <div key={file.name} className={`openclaw-profile-file ${file.available ? 'is-available' : ''}`}>
+                    <span className="openclaw-profile-file-name">{file.name}</span>
+                    <span className="openclaw-profile-file-summary">{fileSummary(file)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             {!profile ? (
               <Text type="secondary">尚未完成初始化。请回到工作台完成 Agent 初始化。</Text>

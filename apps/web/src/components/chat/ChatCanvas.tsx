@@ -49,7 +49,7 @@ export function ChatCanvas({ messages, onCopyMessage, onEditMessage }: ChatCanva
         role: message.role === 'user' ? 'user' : 'assistant',
         content:
           message.role === 'assistant' ? (
-            <div>
+            <div className={message.status === 'streaming' ? 'assistant-message-body is-streaming' : 'assistant-message-body'}>
               {message.planSteps && message.planSteps.length > 0 ? (
                 <PlanSteps steps={message.planSteps} />
               ) : null}

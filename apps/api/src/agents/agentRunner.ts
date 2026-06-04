@@ -100,6 +100,10 @@ function extractChatText(payload: ChatEventPayload): string | null {
   );
 }
 
+function getAgentDisplayName(agent: AgentHandle) {
+  return agent.profile?.agentName?.trim() || agent.name.trim() || agent.id;
+}
+
 // ── Agent helpers factory ──
 
 type AgentHelpers = ReturnType<typeof createAgentHelpers>;
@@ -109,11 +113,19 @@ async function syncProfileFilesSafely(
   agent: AgentHandle,
   helpers: AgentHelpers,
 ) {
-  if (!agent.profile || !agent.gatewayAgentId) {
+  if (!agent.gatewayAgentId) {
     return;
   }
 
   try {
+    if (!agent.profile) {
+      await client.request('agents.update', {
+        agentId: agent.gatewayAgentId,
+        name: getAgentDisplayName(agent),
+        emoji: agent.emoji,
+      });
+      return;
+    }
     await syncAgentProfileFiles(client, agent);
     helpers.publishEvent('agent.profile.synced', 'Agent 配置已同步到 OpenClaw', 'success');
   } catch (error) {
@@ -250,8 +262,9 @@ async function ensureGatewayAgent(
     'running',
   );
 
-  // Use agent.id (UUID) as the name to guarantee uniqueness
-  const workspace = agent.workspace || createXuanzhiWorkspacePath(agent.userId);
+  const owner = store.getUserById(agent.userId);
+  const workspace = agent.workspace || createXuanzhiWorkspacePath(owner?.username ?? agent.userId);
+  const displayName = getAgentDisplayName(agent);
   try {
     const created = await client.request<{
       ok: true;
@@ -259,7 +272,7 @@ async function ensureGatewayAgent(
       name: string;
       workspace: string;
     }>('agents.create', {
-      name: agent.id,
+      name: displayName,
       workspace,
     });
 
@@ -271,7 +284,7 @@ async function ensureGatewayAgent(
     } else {
       client.request('agents.update', {
         agentId: created.agentId,
-        name: agent.name,
+        name: displayName,
       }).catch(() => {});
     }
 
@@ -304,18 +317,21 @@ async function ensureSession(
   const mainResult = await client.request<{ key: string }>('sessions.create', {
     key: 'main',
     agentId: gatewayAgentId,
-    label: `${agent.name} 的主对话`,
+    label: `${getAgentDisplayName(agent)} 的主对话`,
   });
 
   // Task child session: linked to main via the canonical parentSessionKey
   // (must use the full "agent:{gatewayAgentId}:{rest}" format for lookup to work)
-  const taskSessionKey = `task:${gatewayAgentId}:${task.id}`;
-  return client.request<{ key: string }>('sessions.create', {
+  const taskSessionKey = `task:${task.id}`;
+  const session = await client.request<{ key: string }>('sessions.create', {
     key: taskSessionKey,
     agentId: gatewayAgentId,
     label: task.title || task.userInput.slice(0, 50),
     parentSessionKey: mainResult.key,
   });
+  store.updateTaskSessionKey(task.id, session.key);
+  task.sessionKey = session.key;
+  return session;
 }
 
 // ── Stream response with real-time delta forwarding + agent events ──
@@ -536,7 +552,7 @@ export async function runOpenClawSession(
   isFollowup = false,
 ): Promise<void> {
   const client = getOpenClawClient();
-  const agent = store.getAgentByUserId(task.userId);
+  const agent = task.agentId ? store.getAgent(task.agentId) : store.getAgentByUserId(task.userId);
   if (!agent) {
     store.addEvent({
       userId: task.userId,

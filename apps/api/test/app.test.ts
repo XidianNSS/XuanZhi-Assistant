@@ -175,7 +175,7 @@ async function createTask(
   app: FastifyInstance,
   token: string,
   userInput: string,
-  options: { intent?: TaskIntent; title?: string } = {},
+  options: { agentId?: string; intent?: TaskIntent; title?: string } = {},
 ) {
   const response = await app.inject({
     method: 'POST',
@@ -184,6 +184,7 @@ async function createTask(
       authorization: `Bearer ${token}`,
     },
     payload: {
+      agentId: options.agentId,
       title: options.title ?? userInput.trim().slice(0, 28),
       userInput,
       intent: options.intent ?? 'general',
@@ -390,6 +391,24 @@ describe('xuanzhi api with OpenClaw Gateway', () => {
     expect(agentsA[0]?.id).not.toBe(agentsB[0]?.id);
   });
 
+  it('creates admin-added agents with a workspace isolated from the main agent', async () => {
+    const main = await login(app, 'main');
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/agents',
+      headers: { authorization: `Bearer ${main.token}` },
+      payload: {
+        name: 'Research Agent',
+        emoji: 'R',
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const agent = response.json<LoginResponse['agent']>();
+    expect(agent?.workspace).toContain('workspace-xuanzhi-main-Research-Agent');
+    expect(agent?.workspace).not.toBe(main.agent?.workspace);
+  });
+
   it('dispatches user messages to OpenClaw sessions and stores the assistant reply', async () => {
     const userA = await login(app, 'alice');
     await app.inject({
@@ -440,6 +459,12 @@ describe('xuanzhi api with OpenClaw Gateway', () => {
     expect(chatSendCall?.params).toMatchObject({
       message: 'Explain the uploaded notes',
     });
+    const taskAfterRunResponse = await app.inject({
+      method: 'GET',
+      url: `/api/tasks/${task.id}`,
+      headers: { authorization: `Bearer ${userA.token}` },
+    });
+    expect(taskAfterRunResponse.json<Task>().sessionKey).toContain(task.id);
     expect(messages.map((message) => message.role)).toEqual(['user', 'assistant']);
     expect(messages.at(-1)).toMatchObject({
       role: 'assistant',
@@ -590,6 +615,76 @@ describe('xuanzhi api with OpenClaw Gateway', () => {
         }),
       ]),
     );
+  });
+
+  it('opens an agent main task through the backend-owned main session', async () => {
+    const main = await login(app, 'main');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/agents/${main.agent?.id}/main-task`,
+      headers: { authorization: `Bearer ${main.token}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const task = response.json<Task>();
+    expect(task).toMatchObject({
+      agentId: main.agent?.id,
+      intent: 'general',
+      sessionKey: 'agent:main:main',
+      status: 'completed',
+    });
+    expect(gateway.calls.find((call) => call.method === 'sessions.create')?.params).toMatchObject({
+      key: 'main',
+      agentId: 'main',
+    });
+  });
+
+  it('creates a new child session when starting a new conversation', async () => {
+    const main = await login(app, 'main');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/agents/${main.agent?.id}/conversations`,
+      headers: { authorization: `Bearer ${main.token}` },
+      payload: { title: 'New child session' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const task = response.json<Task>();
+    expect(task).toMatchObject({
+      agentId: main.agent?.id,
+      title: 'New child session',
+      status: 'completed',
+    });
+    expect(task.sessionKey).toContain(task.id);
+    const sessionCreateCalls = gateway.calls.filter((call) => call.method === 'sessions.create');
+    expect(sessionCreateCalls.map((call) => (call.params as { key: string }).key)).toEqual(
+      expect.arrayContaining(['main', `task:${task.id}`]),
+    );
+    expect(sessionCreateCalls.find((call) => (call.params as { key: string }).key === `task:${task.id}`)?.params).toMatchObject({
+      parentSessionKey: 'agent:main:main',
+    });
+  });
+
+  it('rejects cross-user agent session access', async () => {
+    const userA = await login(app, 'alice');
+    const userB = await login(app, 'bob');
+
+    const mainResponse = await app.inject({
+      method: 'POST',
+      url: `/api/agents/${userB.agent?.id}/main-task`,
+      headers: { authorization: `Bearer ${userA.token}` },
+    });
+    const conversationResponse = await app.inject({
+      method: 'POST',
+      url: `/api/agents/${userB.agent?.id}/conversations`,
+      headers: { authorization: `Bearer ${userA.token}` },
+      payload: { title: 'Should not be created' },
+    });
+
+    expect(mainResponse.statusCode).toBe(404);
+    expect(conversationResponse.statusCode).toBe(404);
   });
 
   it('rejects cross-user stream access', async () => {

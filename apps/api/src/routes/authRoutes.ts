@@ -2,7 +2,9 @@ import type { FastifyInstance } from 'fastify';
 
 import type { AppDependencies } from '../app/dependencies.js';
 import { createXuanzhiWorkspacePath } from '../agents/workspace.js';
+import { getOpenClawClient } from '../agents/openclawClient.js';
 import { requireUserAuth } from '../http/taskGuards.js';
+import type { Agent } from '@xuanzhi/shared/protocol';
 
 function defaultAgentName(username: string) {
   return username === 'main' ? 'OpenClaw main' : `${username} 的 OpenClaw Agent`;
@@ -13,6 +15,30 @@ function defaultAgentOptions(username: string) {
   return username === 'main'
     ? { workspace, gatewayAgentId: 'main' }
     : { workspace };
+}
+
+function agentDisplayName(agent: Agent) {
+  return agent.profile?.agentName?.trim() || agent.name.trim() || agent.id;
+}
+
+function syncAgentDisplayToOpenClaw(agent: Agent) {
+  if (!agent.gatewayAgentId) return;
+  const client = getOpenClawClient();
+  void (async () => {
+    try {
+      if (!client.isConnected()) {
+        await client.connect();
+      }
+      await client.request('agents.update', {
+        agentId: agent.gatewayAgentId,
+        name: agentDisplayName(agent),
+        workspace: agent.workspace,
+        emoji: agent.emoji,
+      });
+    } catch {
+      // Login must stay usable even if the Gateway is temporarily unavailable.
+    }
+  })();
 }
 
 export function registerAuthRoutes(app: FastifyInstance, dependencies: AppDependencies) {
@@ -30,6 +56,7 @@ export function registerAuthRoutes(app: FastifyInstance, dependencies: AppDepend
       defaultAgentOptions(username),
     );
     result.data.agent = agent;
+    syncAgentDisplayToOpenClaw(agent);
 
     return reply.status(201).send(result.data);
   });
@@ -46,6 +73,7 @@ export function registerAuthRoutes(app: FastifyInstance, dependencies: AppDepend
       defaultAgentName(login.user.username),
       defaultAgentOptions(login.user.username),
     );
+    syncAgentDisplayToOpenClaw(login.agent);
     return login;
   });
 
@@ -59,6 +87,7 @@ export function registerAuthRoutes(app: FastifyInstance, dependencies: AppDepend
       defaultAgentName(auth.user.username),
       defaultAgentOptions(auth.user.username),
     );
+    syncAgentDisplayToOpenClaw(agent);
     return {
       user: auth.user,
       agent,

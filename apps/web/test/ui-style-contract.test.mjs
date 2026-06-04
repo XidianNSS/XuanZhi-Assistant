@@ -171,7 +171,7 @@ test('agent flow uses the backend-owned user agent and isolates conversations pe
   assert.match(shell, /<AgentCreatePage/, 'expected the agent creation page to render in the main workspace');
 
   assert.match(sidebar, /agentItems\.map/, 'expected the sidebar to render multiple agents');
-  assert.match(sidebar, /onAgentSelect/, 'expected clicking an agent to switch agent context');
+  assert.match(sidebar, /onOpenAgentMain/, 'expected clicking an agent to open its OpenClaw main session');
   assert.match(sidebar, /onCreateAgent/, 'expected the agent setup button to open the profile wizard instead of a blank chat');
 
   assert.match(picker, /agent-wizard-page/, 'expected a dedicated agent profile wizard surface');
