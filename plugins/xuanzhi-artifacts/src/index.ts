@@ -121,6 +121,12 @@ function toolParams(args: unknown[]) {
   return candidate as Record<string, unknown>;
 }
 
+function contextObjects(args: unknown[]) {
+  return args.filter(
+    (arg): arg is Record<string, unknown> => Boolean(arg) && typeof arg === "object" && !Array.isArray(arg),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Parameter helpers
 // ---------------------------------------------------------------------------
@@ -136,6 +142,33 @@ function requireString(params: Record<string, unknown>, key: string) {
 function optionalString(params: Record<string, unknown>, key: string) {
   const value = params[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function firstString(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function runtimeString(args: unknown[], key: string) {
+  for (const item of contextObjects(args)) {
+    const direct = firstString(item[key]);
+    if (direct) return direct;
+
+    const session = item.session;
+    if (session && typeof session === "object" && !Array.isArray(session)) {
+      const nested = firstString((session as Record<string, unknown>)[key]);
+      if (nested) return nested;
+    }
+
+    const agent = item.agent;
+    if (agent && typeof agent === "object" && !Array.isArray(agent)) {
+      const nested = firstString((agent as Record<string, unknown>)[key]);
+      if (nested) return nested;
+    }
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +188,33 @@ async function wrapResult(
 // ---------------------------------------------------------------------------
 // Tool execute functions (same business logic as before)
 // ---------------------------------------------------------------------------
+
+function makeStartTask(cfg: { baseUrl: string; token: string }) {
+  return async (...args: unknown[]) => {
+    const params = toolParams(args);
+    const sessionKey = firstString(
+      optionalString(params, "sessionKey"),
+      runtimeString(args, "sessionKey"),
+      runtimeString(args, "sessionId"),
+    );
+    if (!sessionKey) {
+      throw new Error("sessionKey must be the current OpenClaw session id");
+    }
+
+    return wrapResult(
+      xuanzhiFetch(cfg, "/api/openclaw/tasks/start", {
+        body: {
+          sessionKey,
+          agentId: firstString(optionalString(params, "agentId"), runtimeString(args, "agentId")),
+          agentName: firstString(optionalString(params, "agentName"), runtimeString(args, "agentName"), runtimeString(args, "name")),
+          title: requireString(params, "title"),
+          intent: optionalString(params, "intent"),
+          summary: optionalString(params, "summary"),
+        },
+      }),
+    );
+  };
+}
 
 function makeEmitEvent(cfg: { baseUrl: string; token: string }) {
   return async (...args: unknown[]) => {
@@ -245,6 +305,15 @@ function enumProp(values: string[]) {
   };
 }
 
+const startTaskParams = buildToolParams(["title", "sessionKey"], {
+  title: stringProp,
+  intent: enumProp(["meeting", "business", "coding", "qa", "general"]),
+  summary: stringProp,
+  sessionKey: stringProp,
+  agentId: stringProp,
+  agentName: stringProp,
+});
+
 const eventParams = buildToolParams(["taskId", "type", "title"], {
   taskId: stringProp,
   type: stringProp,
@@ -290,9 +359,17 @@ export default definePluginEntry({
     api.logger.info("[xuanzhi-artifacts] registering Xuanzhi reporting tools");
 
     api.registerTool({
+      name: "xuanzhi_start_task",
+      description:
+        "Start a new Xuanzhi task for trackable work. Pass sessionKey as the current OpenClaw session id, for example agent:<agentName>:main or agent:<agentName>:task:<taskId>. Do not include userId.",
+      parameters: startTaskParams,
+      execute: makeStartTask(cfg),
+    });
+
+    api.registerTool({
       name: "xuanzhi_emit_event",
       description:
-        "Emit a Xuanzhi task event. Do not include userId; Xuanzhi resolves ownership by taskId.",
+        "Emit a Xuanzhi task progress event for an existing taskId. Do not include userId. Do not use this for chat messages.",
       parameters: eventParams,
       execute: makeEmitEvent(cfg),
     });
@@ -300,7 +377,7 @@ export default definePluginEntry({
     api.registerTool({
       name: "xuanzhi_create_artifact",
       description:
-        "Create a Xuanzhi artifact for the task. Do not include userId.",
+        "Create a Xuanzhi task artifact such as a plan, report, code diff, tool result, or task final summary for an existing taskId. Do not include userId. Do not use this for OpenClaw chat history.",
       parameters: artifactParams,
       execute: makeCreateArtifact(cfg),
     });
@@ -308,7 +385,7 @@ export default definePluginEntry({
     api.registerTool({
       name: "xuanzhi_request_approval",
       description:
-        "Request user approval for an external or high-impact action. Do not include userId.",
+        "Request user approval for an external or high-impact task action for an existing taskId. Do not include userId.",
       parameters: approvalParams,
       execute: makeRequestApproval(cfg),
     });
@@ -316,7 +393,7 @@ export default definePluginEntry({
     api.registerTool({
       name: "xuanzhi_update_task_status",
       description:
-        "Update a Xuanzhi task status after a meaningful execution transition.",
+        "Update a Xuanzhi task status after a meaningful execution transition for an existing taskId. Do not use this for chat delivery state.",
       parameters: statusParams,
       execute: makeUpdateTaskStatus(cfg),
     });

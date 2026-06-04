@@ -25,6 +25,7 @@ const exists = async (path) => {
 
 test('assistant shell exposes the QClaw-style workspace structure', async () => {
   const sidebar = await read('src/components/assistant/Sidebar.tsx');
+  const header = await read('src/components/assistant/WorkspaceHeader.tsx');
   const assistantCss = await readAssistantStyles();
 
   assert.match(sidebar, /assistant-nav-rail/, 'expected a narrow navigation rail in the sidebar');
@@ -34,6 +35,9 @@ test('assistant shell exposes the QClaw-style workspace structure', async () => 
   assert.match(sidebar, /nav-rail-bottom/, 'expected the bottom settings entry to remain');
   assert.match(sidebar, /nav-rail-icon/, 'expected the bottom settings icon to remain');
   assert.doesNotMatch(sidebar, /<BrandLockup \/>/, 'expected the sidebar brand lockup to be removed');
+  assert.match(header, /collapsed-new-chat-wrap/, 'expected collapsed sidebar new-chat trigger markup');
+  assert.match(assistantCss, /\.collapsed-new-chat-wrap/, 'expected collapsed sidebar new-chat trigger styles');
+  assert.match(assistantCss, /\.assistant-shell\.is-sidebar-collapsed \.collapsed-new-chat-wrap/, 'expected collapsed state to reveal the new-chat trigger');
   assert.match(assistantCss, /--nav-rail-width:\s*68px/, 'expected a fixed narrow rail token');
   assert.match(assistantCss, /grid-template-columns:\s*var\(--nav-rail-width\) var\(--agent-sidebar-width\)/, 'expected rail + agent list columns');
 });
@@ -83,6 +87,11 @@ test('conversation list uses inline pending spinners instead of status groups', 
   assert.doesNotMatch(activeStatusList.groups.statuses, /'completed'|'failed'/, 'expected terminal tasks to hide pending indicator');
   assert.match(assistantCss, /agent-card-spinner/, 'expected active agent avatar spinner styling in CSS');
   assert.match(assistantCss, /conversation-item-spinner/, 'expected active conversation icon spinner styling in CSS');
+  assert.match(
+    assistantCss,
+    /\.conversation-title\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/,
+    'expected conversation titles to keep the title text in the flexible first column',
+  );
 });
 
 test('task execution workspace is removed from the basic chat surface', async () => {

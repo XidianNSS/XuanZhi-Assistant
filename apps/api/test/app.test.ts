@@ -775,6 +775,69 @@ describe('xuanzhi api with OpenClaw Gateway', () => {
     });
   });
 
+  it('starts multiple tasks for an OpenClaw session using service auth', async () => {
+    const userA = await login(app, 'main');
+    const sessionKey = `agent:${userA.agent?.gatewayAgentId}:main`;
+
+    const firstResponse = await app.inject({
+      method: 'POST',
+      url: '/api/openclaw/tasks/start',
+      headers: {
+        authorization: 'Bearer dev-token',
+      },
+      payload: {
+        sessionKey,
+        title: 'Artifact needed',
+        summary: 'Need an artifact',
+        userId: 'spoofed-user',
+      },
+    });
+    const secondResponse = await app.inject({
+      method: 'POST',
+      url: '/api/openclaw/tasks/start',
+      headers: {
+        authorization: 'Bearer dev-token',
+      },
+      payload: {
+        sessionKey,
+        title: 'Another artifact needed',
+      },
+    });
+
+    expect(firstResponse.statusCode).toBe(201);
+    expect(secondResponse.statusCode).toBe(201);
+    expect(firstResponse.json<Task>()).toMatchObject({
+      userId: userA.user.id,
+      agentId: userA.agent?.id,
+      sessionKey,
+      title: 'Artifact needed',
+    });
+    expect(firstResponse.json<Task>().userId).not.toBe('spoofed-user');
+    expect(secondResponse.json<Task>()).toMatchObject({
+      userId: userA.user.id,
+      agentId: userA.agent?.id,
+      sessionKey,
+      title: 'Another artifact needed',
+    });
+    expect(secondResponse.json<Task>().id).not.toBe(firstResponse.json<Task>().id);
+  });
+
+  it('rejects starting a task for an unknown OpenClaw agent session', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/openclaw/tasks/start',
+      headers: {
+        authorization: 'Bearer dev-token',
+      },
+      payload: {
+        sessionKey: 'agent:unknown-agent:main',
+        title: 'Unknown agent task',
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
   it('serves generated workspace files for the owning task and blocks unsafe access', async () => {
     const userA = await login(app, 'alice');
     const userB = await login(app, 'bob');

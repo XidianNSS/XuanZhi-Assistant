@@ -2,7 +2,7 @@
   "id": "xuanzhi-artifacts",
   "name": "Xuanzhi Artifacts",
   "description": "Emit Xuanzhi task events, artifacts, approvals, and task status updates.",
-  "version": "2026.5.28",
+  "version": "2026.6.4",
   "activation": {
     "onStartup": true
   },
@@ -22,6 +22,9 @@
     }
   },
   "toolMetadata": {
+    "xuanzhi_start_task": {
+      "optional": false
+    },
     "xuanzhi_emit_event": {
       "optional": false
     },
@@ -37,6 +40,7 @@
   },
   "contracts": {
     "tools": [
+      "xuanzhi_start_task",
       "xuanzhi_emit_event",
       "xuanzhi_create_artifact",
       "xuanzhi_request_approval",

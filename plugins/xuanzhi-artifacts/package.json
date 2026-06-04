@@ -1,7 +1,7 @@
 {
   "name": "xuanzhi-artifacts",
   "private": true,
-  "version": "2026.5.28",
+  "version": "2026.6.4",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -10,6 +10,7 @@ import { registerEventRoutes } from '../routes/eventRoutes.js';
 import { registerFileRoutes } from '../routes/fileRoutes.js';
 import { registerGatewayRoutes } from '../routes/gatewayRoutes.js';
 import { registerMessageRoutes } from '../routes/messageRoutes.js';
+import { registerOpenClawTaskRoutes } from '../routes/openclawTaskRoutes.js';
 import { registerSessionRoutes } from '../routes/sessionRoutes.js';
 import { registerSkillRoutes } from '../routes/skillRoutes.js';
 import { registerStreamRoutes } from '../routes/streamRoutes.js';
@@ -23,6 +24,7 @@ export function registerRoutes(app: FastifyInstance, dependencies: AppDependenci
   registerMessageRoutes(app, dependencies);
   registerEventRoutes(app, dependencies);
   registerArtifactRoutes(app, dependencies);
+  registerOpenClawTaskRoutes(app, dependencies);
   registerFileRoutes(app, dependencies);
   registerApprovalRoutes(app, dependencies);
   registerSessionRoutes(app, dependencies);

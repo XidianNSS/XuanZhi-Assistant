@@ -5,6 +5,7 @@ import manifest from "../openclaw.plugin.json" with { type: "json" };
 
 type RegisteredTool = {
   name: string;
+  description: string;
   parameters: {
     type: "object";
     additionalProperties?: boolean;
@@ -45,6 +46,20 @@ function stubFetch(response: { ok?: boolean; status?: number; text?: string; jso
   return fetchMock;
 }
 
+function stubFetchSequence(responses: Array<{ ok?: boolean; status?: number; text?: string; json?: unknown }>) {
+  const fetchMock = vi.fn(async () => {
+    const response = responses.shift() ?? {};
+    return {
+      ok: response.ok ?? true,
+      status: response.status ?? 200,
+      text: async () => response.text ?? "",
+      json: async () => response.json ?? { ok: true },
+    };
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 describe("xuanzhi-artifacts plugin", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -64,6 +79,23 @@ describe("xuanzhi-artifacts plugin", () => {
         additionalProperties: false,
       });
     }
+    expect(
+      tools.find((tool) => tool.name === "xuanzhi_create_artifact")?.description,
+    ).toContain("task artifact");
+  });
+
+  it("keeps the plugin contract task-lifecycle only and excludes chat message tools", () => {
+    const { tools } = createPluginApi();
+
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "xuanzhi_start_task",
+      "xuanzhi_emit_event",
+      "xuanzhi_create_artifact",
+      "xuanzhi_request_approval",
+      "xuanzhi_update_task_status",
+    ]);
+    expect(tools.map((tool) => tool.name)).not.toContain("xuanzhi_create_message");
+    expect(tools.map((tool) => tool.name).join("\n")).not.toMatch(/chat|message/i);
   });
 
   it("emits events without forwarding spoofed user ownership", async () => {
@@ -161,6 +193,73 @@ describe("xuanzhi-artifacts plugin", () => {
         },
       }),
     );
+  });
+
+  it("starts a task from the OpenClaw runtime session context", async () => {
+    const fetchMock = stubFetchSequence([{ status: 201, json: { id: "task_started" } }]);
+    const { tools } = createPluginApi({
+      baseUrl: "http://xuanzhi.local",
+      token: "plugin-token",
+    });
+
+    const result = await tools.find((tool) => tool.name === "xuanzhi_start_task")?.execute(
+      "call_1",
+      {
+        title: "Report",
+        intent: "general",
+        summary: "Need a report",
+        userId: "spoofed-user",
+      },
+      {
+        sessionKey: "agent:gateway-agent:main",
+        agentName: "gateway-agent",
+      },
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://xuanzhi.local/api/openclaw/tasks/start",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer plugin-token",
+        },
+        body: JSON.stringify({
+          sessionKey: "agent:gateway-agent:main",
+          agentName: "gateway-agent",
+          title: "Report",
+          intent: "general",
+          summary: "Need a report",
+        }),
+      }),
+    );
+    expect(result).toEqual({
+      content: [{ type: "text", text: JSON.stringify({ id: "task_started" }, null, 2) }],
+      details: { id: "task_started" },
+    });
+  });
+
+  it("requires sessionKey in the start task tool schema because OpenClaw does not always pass runtime context", () => {
+    const { tools } = createPluginApi();
+    const startTask = tools.find((tool) => tool.name === "xuanzhi_start_task");
+
+    expect(startTask?.parameters.required).toContain("sessionKey");
+    expect(startTask?.description).toContain("current OpenClaw session id");
+  });
+
+  it("requires taskId when creating an artifact so multiple session tasks stay distinct", async () => {
+    stubFetch();
+    const { tools } = createPluginApi();
+
+    await expect(
+      tools.find((tool) => tool.name === "xuanzhi_create_artifact")?.execute("call_1", {
+        type: "report",
+        title: "Report",
+        format: "markdown",
+        content: "# Report",
+      }),
+    ).rejects.toThrow("taskId must be a non-empty string");
   });
 
   it("throws concise API errors with response body text", async () => {

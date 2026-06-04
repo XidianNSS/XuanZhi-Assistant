@@ -1,6 +1,9 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
 import { loadRuntimeEnv } from '../config/env.js';
 
-const DEFAULT_OPENCLAW_WORKSPACE_ROOT = '/home/lin123/.openclaw';
+const DEFAULT_OPENCLAW_WORKSPACE_ROOT = join(homedir(), '.openclaw');
 
 function sanitizeWorkspaceSegment(value: string) {
   return value

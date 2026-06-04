@@ -34,9 +34,14 @@ export function createTaskService(store: MemoryStore, stream: StreamHub) {
       const taskId = key.slice(markerIndex + marker.length);
       if (taskId.startsWith('task_')) return taskId;
     }
-    const taskId = key.match(/task_[a-zA-Z0-9-]+/)?.[0];
+    const taskId = key.match(/task_[a-zA-Z0-9_-]+/)?.[0];
     if (taskId) return taskId;
     return `session_${key.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 96)}`;
+  }
+
+  function gatewayAgentIdFromSessionKey(sessionKey: string) {
+    const match = sessionKey.match(/^agent:([^:]+):/);
+    return match?.[1];
   }
 
   function isoFromSessionDate(value: string | number | undefined) {
@@ -54,8 +59,8 @@ export function createTaskService(store: MemoryStore, stream: StreamHub) {
     const key = getSessionKey(session);
     const updatedAt = isoFromSessionDate(session.updatedAt ?? session.createdAt);
     const fallbackTitle = key.endsWith(':main')
-      ? `${agent.name} main conversation`
-      : `OpenClaw session ${session.sessionKey?.slice(0, 8) || session.id?.slice(0, 8) || key.split(':').at(-1) || ''}`.trim();
+      ? `${agent.name} 的主对话`
+      : `OpenClaw 会话 ${session.sessionKey?.slice(0, 8) || session.id?.slice(0, 8) || key.split(':').at(-1) || ''}`.trim();
     const title =
       session.displayName?.trim()
       || session.label?.trim()
@@ -157,6 +162,50 @@ export function createTaskService(store: MemoryStore, stream: StreamHub) {
         stream.broadcast(taskId, { type: 'task.updated', data: updated });
       }
       return updated;
+    },
+
+    startTaskForOpenClawSession(input: {
+      sessionKey: string;
+      agentId?: string;
+      agentName?: string;
+      title?: string;
+      summary?: string;
+      intent?: TaskIntent;
+    }) {
+      const sessionKey = input.sessionKey.trim();
+      const gatewayAgentId = gatewayAgentIdFromSessionKey(sessionKey);
+      if (!sessionKey) {
+        return undefined;
+      }
+
+      const agent = [...store.agents.values()].find((item) => (
+        (gatewayAgentId && item.gatewayAgentId === gatewayAgentId)
+        || (input.agentId?.trim() && item.gatewayAgentId === input.agentId.trim())
+        || (input.agentName?.trim() && (item.name === input.agentName.trim() || item.profile?.agentName === input.agentName.trim()))
+      ));
+      if (!agent) {
+        return undefined;
+      }
+
+      const title = input.title?.trim() || 'OpenClaw 任务';
+      const task = store.createTask({
+        userId: agent.userId,
+        agentId: agent.id,
+        sessionKey,
+        title,
+        userInput: input.summary?.trim() || title,
+        intent: input.intent ?? 'general',
+      });
+      const event = store.addEvent({
+        userId: task.userId,
+        taskId: task.id,
+        type: 'task.started_from_session',
+        title: '已从 OpenClaw 会话启动任务',
+        status: 'success',
+        payload: { sessionKey },
+      });
+      stream.broadcast(task.id, { type: 'agent.event.created', data: event });
+      return task;
     },
   };
 }
