@@ -6,7 +6,7 @@
   }
 
   .assistant-shell.is-sidebar-collapsed {
-    grid-template-columns: var(--nav-rail-width) minmax(0, 1fr);
+    grid-template-columns: 0 minmax(0, 1fr);
   }
 
   .assistant-sidebar {
@@ -39,6 +39,7 @@
   }
 
   .assistant-shell.is-sidebar-collapsed .assistant-sidebar {
+    grid-template-columns: 0 0;
     max-height: 68px;
   }
 
@@ -47,12 +48,16 @@
   }
 
   .assistant-shell.is-sidebar-collapsed .assistant-sidebar-panel {
-    transform: translateY(-16px);
+    opacity: 0;
   }
 
   .workspace-header {
     height: 52px;
     padding: 0 14px;
+  }
+
+  .assistant-shell.is-sidebar-collapsed .workspace-header {
+    padding-left: 150px;
   }
 
   .workspace-body,

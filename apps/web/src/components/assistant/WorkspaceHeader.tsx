@@ -15,14 +15,12 @@ const taskStatusLabel: Record<Task['status'], string> = {
 type WorkspaceHeaderProps = {
   sidebarCollapsed: boolean;
   task?: Task;
-  onCreateConversation: () => void;
   onToggleSidebar: () => void;
 };
 
 export function WorkspaceHeader({
   sidebarCollapsed,
   task,
-  onCreateConversation,
   onToggleSidebar,
 }: WorkspaceHeaderProps) {
   return (
@@ -38,19 +36,6 @@ export function WorkspaceHeader({
             onClick={onToggleSidebar}
           />
         </Tooltip>
-        <div className="collapsed-new-chat-wrap" aria-hidden={!sidebarCollapsed}>
-          <Tooltip title="新对话">
-            <Button
-              type="text"
-              shape="circle"
-              icon={<Icon name="plus" />}
-              className="collapsed-new-chat-button"
-              aria-label="新对话"
-              tabIndex={sidebarCollapsed ? 0 : -1}
-              onClick={onCreateConversation}
-            />
-          </Tooltip>
-        </div>
         {task ? (
           <div className="workspace-title">
             <Text>{task.title}</Text>

@@ -83,6 +83,13 @@ const gateway = vi.hoisted(() => {
         const key = input.key === 'main'
           ? `agent:${input.agentId}:main`
           : `agent:${input.agentId}:${input.key}`;
+        if (
+          !sessions.some((session) => session.key === key)
+          && input.label
+          && sessions.some((session) => session.agentId === input.agentId && session.title === input.label)
+        ) {
+          throw new Error(`label already in use: ${input.label}`);
+        }
         if (!sessions.some((session) => session.key === key)) {
           sessions.push({
             key,
@@ -102,10 +109,18 @@ const gateway = vi.hoisted(() => {
 
       if (method === 'chat.send') {
         const input = params as { sessionKey: string; message: string };
+        if (!sessions.some((session) => session.key === input.sessionKey)) {
+          throw new Error(`unknown session: ${input.sessionKey}`);
+        }
         setTimeout(() => {
-          emit('chat', {
+          const payload: {
+            runId: string;
+            sessionKey?: string;
+            seq: number;
+            state: 'final';
+            message: { role: string; content: Array<{ type: string; text: string }> };
+          } = {
             runId: `run-${Date.now()}`,
-            sessionKey: input.sessionKey,
             seq: 1,
             state: 'final',
             message: {
@@ -117,7 +132,11 @@ const gateway = vi.hoisted(() => {
                 },
               ],
             },
-          });
+          };
+          if (!input.message.includes('无 sessionKey 事件')) {
+            payload.sessionKey = input.sessionKey;
+          }
+          emit('chat', payload);
         }, 0);
         return { ok: true };
       }
@@ -713,6 +732,112 @@ describe('xuanzhi api with OpenClaw Gateway', () => {
         }),
       ]),
     );
+  });
+
+  it('creates repeated default conversations with unique OpenClaw labels', async () => {
+    const userA = await login(app, 'alice');
+    const agentId = userA.agent?.id;
+    expect(agentId).toBeTruthy();
+
+    const createConversation = () => app.inject({
+      method: 'POST',
+      url: `/api/agents/${agentId}/conversations`,
+      headers: { authorization: `Bearer ${userA.token}` },
+      payload: { title: '新对话' },
+    });
+
+    const firstResponse = await createConversation();
+    const secondResponse = await createConversation();
+
+    expect(firstResponse.statusCode).toBe(200);
+    expect(secondResponse.statusCode).toBe(200);
+    expect(firstResponse.json<Task>().title).toBe('新对话');
+    expect(secondResponse.json<Task>().title).toBe('新对话');
+
+    const childSessionCalls = gateway.calls.filter((call) => (
+      call.method === 'sessions.create'
+      && (call.params as { key?: string }).key?.startsWith('task:')
+    ));
+    const labels = childSessionCalls.map((call) => (call.params as { label?: string }).label);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it('sends the first user message through a newly created child conversation', async () => {
+    const userA = await login(app, 'alice');
+    const agentId = userA.agent?.id;
+    expect(agentId).toBeTruthy();
+
+    const conversationResponse = await app.inject({
+      method: 'POST',
+      url: `/api/agents/${agentId}/conversations`,
+      headers: { authorization: `Bearer ${userA.token}` },
+      payload: { title: '新对话' },
+    });
+
+    expect(conversationResponse.statusCode).toBe(200);
+    const childTask = conversationResponse.json<Task>();
+
+    const tasksResponse = await app.inject({
+      method: 'GET',
+      url: '/api/tasks',
+      headers: { authorization: `Bearer ${userA.token}` },
+    });
+    expect(tasksResponse.json<Task>().find((task) => task.id === childTask.id)?.title).toBe('新对话');
+
+    await sendUserMessage(app, userA.token, childTask.id, '请测试这个新建会话');
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const chatSendCall = gateway.calls.find((call) => call.method === 'chat.send');
+    expect(chatSendCall?.params).toMatchObject({
+      sessionKey: childTask.sessionKey,
+      message: '请测试这个新建会话',
+    });
+
+    const taskResponse = await app.inject({
+      method: 'GET',
+      url: `/api/tasks/${childTask.id}`,
+      headers: { authorization: `Bearer ${userA.token}` },
+    });
+    expect(taskResponse.json<Task>()).toMatchObject({
+      id: childTask.id,
+      title: '请测试这个新建会话',
+      status: 'completed',
+    });
+  });
+
+  it('accepts OpenClaw final chat events without a sessionKey field', async () => {
+    const userA = await login(app, 'alice');
+    const agentId = userA.agent?.id;
+    expect(agentId).toBeTruthy();
+
+    const conversationResponse = await app.inject({
+      method: 'POST',
+      url: `/api/agents/${agentId}/conversations`,
+      headers: { authorization: `Bearer ${userA.token}` },
+      payload: { title: '新对话' },
+    });
+    const childTask = conversationResponse.json<Task>();
+
+    await sendUserMessage(app, userA.token, childTask.id, '无 sessionKey 事件也应该完成');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const taskResponse = await app.inject({
+      method: 'GET',
+      url: `/api/tasks/${childTask.id}`,
+      headers: { authorization: `Bearer ${userA.token}` },
+    });
+    expect(taskResponse.json<Task>()).toMatchObject({
+      id: childTask.id,
+      status: 'completed',
+    });
+
+    const messagesResponse = await app.inject({
+      method: 'GET',
+      url: `/api/tasks/${childTask.id}/messages`,
+      headers: { authorization: `Bearer ${userA.token}` },
+    });
+    expect(messagesResponse.json<Message[]>().at(-1)?.content).toContain('无 sessionKey 事件也应该完成');
   });
 
   it('blocks cross-user access to Agent session management routes', async () => {

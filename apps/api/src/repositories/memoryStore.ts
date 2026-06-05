@@ -211,7 +211,15 @@ export class MemoryStore {
 
   upsertTask(task: Task) {
     const current = this.tasks.get(task.id);
-    const next = current ? { ...task, status: current.status, updatedAt: task.updatedAt } : task;
+    const next = current
+      ? {
+          ...task,
+          title: current.title,
+          userInput: current.userInput,
+          status: current.status,
+          updatedAt: task.updatedAt,
+        }
+      : task;
     this.tasks.set(next.id, next);
     return next;
   }
@@ -238,6 +246,22 @@ export class MemoryStore {
     const updated: Task = {
       ...task,
       sessionKey,
+      updatedAt: nowIso(),
+    };
+    this.tasks.set(taskId, updated);
+    return updated;
+  }
+
+  updateTaskTitle(taskId: string, title: string) {
+    const task = this.tasks.get(taskId);
+    const trimmedTitle = title.trim();
+    if (!task || !trimmedTitle) {
+      return undefined;
+    }
+    const updated: Task = {
+      ...task,
+      title: trimmedTitle,
+      userInput: task.userInput === task.title ? trimmedTitle : task.userInput,
       updatedAt: nowIso(),
     };
     this.tasks.set(taskId, updated);

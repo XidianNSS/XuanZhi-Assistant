@@ -10,7 +10,9 @@ import { createXuanzhiWorkspacePath } from './workspace.js';
 
 type ChatEventPayload = {
   runId: string;
-  sessionKey: string;
+  sessionKey?: string;
+  session_key?: string;
+  key?: string;
   seq: number;
   state: 'delta' | 'final' | 'aborted' | 'error';
   message?: {
@@ -28,6 +30,8 @@ type GatewayAgentEvent = {
   ts: number;
   data: Record<string, unknown>;
   sessionKey?: string;
+  session_key?: string;
+  key?: string;
 };
 
 type AgentHandle = {
@@ -43,6 +47,22 @@ type AgentHandle = {
 };
 
 const ASSISTANT_RESPONSE_TIMEOUT = 120_000;
+
+function eventSessionKey(payload: { sessionKey?: string; session_key?: string; key?: string }) {
+  return payload.sessionKey ?? payload.session_key ?? payload.key;
+}
+
+function isDifferentSessionEvent(
+  payload: { sessionKey?: string; session_key?: string; key?: string },
+  expectedSessionKey: string,
+) {
+  const key = eventSessionKey(payload);
+  return Boolean(key && key !== expectedSessionKey);
+}
+
+function uniqueSessionLabel(title: string, taskId: string) {
+  return `${title} (${taskId.slice(-8)})`;
+}
 
 // ── Text merge (Gateway sends deltas, not full text) ──
 
@@ -317,7 +337,7 @@ async function ensureSession(
   const mainResult = await client.request<{ key: string }>('sessions.create', {
     key: 'main',
     agentId: gatewayAgentId,
-    label: `${getAgentDisplayName(agent)} main conversation`,
+    label: `${getAgentDisplayName(agent)} 的主对话`,
   });
 
   // Task child session: linked to main via the canonical parentSessionKey
@@ -326,7 +346,7 @@ async function ensureSession(
   const session = await client.request<{ key: string }>('sessions.create', {
     key: taskSessionKey,
     agentId: gatewayAgentId,
-    label: task.title || task.userInput.slice(0, 50),
+    label: uniqueSessionLabel(task.title || task.userInput.slice(0, 50), task.id),
     parentSessionKey: mainResult.key,
   });
   store.updateTaskSessionKey(task.id, session.key);
@@ -362,7 +382,7 @@ function streamResponse(
     // ── Chat stream (text deltas) ──
 
     const unsubChat = client.on<ChatEventPayload>('chat', (payload) => {
-      if (payload.sessionKey !== sessionKey) return;
+      if (isDifferentSessionEvent(payload, sessionKey)) return;
 
       if (payload.state === 'delta') {
         const text = extractChatText(payload);
@@ -406,7 +426,7 @@ function streamResponse(
     // ── Agent events (tool calls, reasoning, status) ──
 
     const unsubAgent = client.on<GatewayAgentEvent>('agent', (payload) => {
-      if (payload.sessionKey && payload.sessionKey !== sessionKey) return;
+      if (isDifferentSessionEvent(payload, sessionKey)) return;
 
       const { stream, data } = payload;
 

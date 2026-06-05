@@ -28,6 +28,10 @@ function taskIdFromSessionKey(sessionKey: string) {
   return `session_${sessionKey.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 96)}`;
 }
 
+function uniqueSessionLabel(title: string, taskId: string) {
+  return `${title} (${taskId.slice(-8)})`;
+}
+
 function taskFromMainSession(agent: Agent, sessionKey: string, label: string): Task {
   const now = new Date().toISOString();
   return {
@@ -51,7 +55,7 @@ async function ensureMainSession(agent: Agent) {
   return getOpenClawClient().request<{ key: string }>('sessions.create', {
     key: 'main',
     agentId: agent.gatewayAgentId,
-    label: `${agentDisplayName(agent)} main conversation`,
+    label: `${agentDisplayName(agent)} 的主对话`,
   });
 }
 
@@ -298,7 +302,7 @@ export function registerAgentRoutes(app: FastifyInstance, dependencies: AppDepen
       return reply.status(502).send({ message: 'OpenClaw Agent is not connected' });
     }
 
-    const label = `${agentDisplayName(gatewayAgent)} main conversation`;
+    const label = `${agentDisplayName(gatewayAgent)} 的主对话`;
     const expectedSessionKey = `agent:${gatewayAgent.gatewayAgentId}:main`;
     const expectedTaskId = taskIdFromSessionKey(expectedSessionKey);
     const existingTask = dependencies.store.tasks.get(expectedTaskId);
@@ -329,7 +333,7 @@ export function registerAgentRoutes(app: FastifyInstance, dependencies: AppDepen
       return reply.status(502).send({ message: 'OpenClaw Agent is not connected' });
     }
 
-    const title = body.title?.trim() || 'New conversation';
+    const title = body.title?.trim() || '新对话';
     const mainSession = await ensureMainSession(gatewayAgent);
     const task = dependencies.services.tasks.createTask({
       userId: gatewayAgent.userId,
@@ -341,7 +345,7 @@ export function registerAgentRoutes(app: FastifyInstance, dependencies: AppDepen
     const session = await getOpenClawClient().request<{ key: string }>('sessions.create', {
       key: `task:${task.id}`,
       agentId: gatewayAgent.gatewayAgentId,
-      label: title,
+      label: uniqueSessionLabel(title, task.id),
       parentSessionKey: mainSession.key,
     });
     dependencies.store.updateTaskSessionKey(task.id, session.key);

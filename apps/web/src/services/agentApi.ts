@@ -67,7 +67,7 @@ export function openMainTask(agentId: string) {
   });
 }
 
-export function createConversation(agentId: string, title = 'New conversation') {
+export function createConversation(agentId: string, title = '新对话') {
   return authFetch<Task>(`/api/agents/${agentId}/conversations`, {
     method: 'POST',
     body: JSON.stringify({ title }),

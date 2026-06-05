@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Conversations } from '@ant-design/x';
 
-import { Avatar, Button, Input, Modal, Text } from '../ui';
+import { Avatar, Button, Input, Modal, Text, Tooltip } from '../ui';
 import { Icon } from '../ui/icons';
 import type { Task, User } from '../../types/protocol';
 import { AgentProfilePanel } from './AgentProfilePanel';
@@ -14,9 +14,12 @@ type SidebarProps = {
   collapsed: boolean;
   currentUser: User;
   tasks: Task[];
+  canCreateConversation: boolean;
   onActiveChange: (taskId: string) => void;
   onAgentSelect: (agentId: string) => void;
+  onCreateConversation: () => void;
   onCreateAgent: () => void;
+  onToggleSidebar: () => void;
   onWorkspaceChange: (workspace: WorkspaceKey) => void;
   onLogout: () => void;
 };
@@ -36,6 +39,17 @@ const activeTaskStatuses = new Set<Task['status']>(['created', 'planning', 'runn
 
 function isTaskActive(status: Task['status']) {
   return activeTaskStatuses.has(status);
+}
+
+function formatConversationTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const today = new Date();
+  return date.toDateString() === today.toDateString()
+    ? date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+    : date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
 }
 
 const baseNavRailItems: Array<{ key: WorkspaceKey; label: string; icon: ReactNode }> = [
@@ -215,9 +229,12 @@ export function Sidebar({
   collapsed,
   currentUser,
   tasks,
+  canCreateConversation,
   onActiveChange,
   onAgentSelect,
+  onCreateConversation,
   onCreateAgent,
+  onToggleSidebar,
   onWorkspaceChange,
   onLogout,
 }: SidebarProps) {
@@ -232,18 +249,18 @@ export function Sidebar({
     ? [...baseNavRailItems, ...adminNavRailItems]
     : baseNavRailItems;
 
-  const conversationItems = tasks.map((task) => {
+  const sortedTasks = [...tasks].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  const conversationItems = sortedTasks.map((task) => {
     const taskActive = isTaskActive(task.status);
     const isSessionTask = task.id.startsWith('session_');
+    const timeLabel = formatConversationTime(task.updatedAt);
 
     return {
       key: task.id,
       label: (
         <span className="conversation-title">
+          {timeLabel ? <span className="conversation-title-time">{timeLabel}</span> : null}
           <span className="conversation-title-text">{task.title}</span>
-          {isSessionTask ? (
-            <span className="conversation-badge" title="OpenClaw 历史会话">历史</span>
-          ) : null}
         </span>
       ),
       icon: taskActive ? (
@@ -284,7 +301,41 @@ export function Sidebar({
           ))}
         </div>
         <div className="nav-rail-bottom">
-          <button className="nav-rail-icon" type="button" aria-label="设置" onClick={openSettings}>
+          <Tooltip title="展开侧栏">
+            <button
+              className="nav-rail-icon collapsed-toolbar-button collapsed-expand-button"
+              type="button"
+              aria-label="展开侧栏"
+              tabIndex={collapsed ? 0 : -1}
+              onClick={onToggleSidebar}
+            >
+              <Icon name="chevron-right-panel" />
+            </button>
+          </Tooltip>
+          <Tooltip title="搜索会话">
+            <button
+              className="nav-rail-icon collapsed-toolbar-button"
+              type="button"
+              aria-label="搜索会话"
+              tabIndex={collapsed ? 0 : -1}
+              onClick={onToggleSidebar}
+            >
+              <Icon name="search" />
+            </button>
+          </Tooltip>
+          <Tooltip title="开启新对话">
+            <button
+              className="nav-rail-icon collapsed-toolbar-button collapsed-new-chat-button"
+              type="button"
+              aria-label="开启新对话"
+              disabled={!canCreateConversation}
+              tabIndex={collapsed ? 0 : -1}
+              onClick={onCreateConversation}
+            >
+              <Icon name="plus" />
+            </button>
+          </Tooltip>
+          <button className="nav-rail-icon settings-rail-button" type="button" aria-label="设置" onClick={openSettings}>
             <Icon name="settings" />
           </button>
         </div>
@@ -304,11 +355,25 @@ export function Sidebar({
           <>
             <Input className="sidebar-search" prefix={<Icon name="search" />} placeholder="搜索" aria-label="搜索会话" />
 
-            {currentUser.role === 'admin' && (
-              <Button icon={<Icon name="plus" />} className="new-chat-button" onClick={onCreateAgent}>
-                新建 Agent
+            <div className="sidebar-action-stack">
+              <Button
+                icon={(
+                  <span className="new-chat-plus-mark">
+                    <Icon name="plus" />
+                  </span>
+                )}
+                className="new-chat-button"
+                disabled={!canCreateConversation}
+                onClick={onCreateConversation}
+              >
+                <span className="new-chat-label">开启新对话</span>
               </Button>
-            )}
+              {currentUser.role === 'admin' ? (
+                <Button icon={<Icon name="user" />} className="new-agent-button" onClick={onCreateAgent}>
+                  新建 Agent
+                </Button>
+              ) : null}
+            </div>
 
             <div className="agent-list" aria-label="Agent 列表" data-has-active-task={hasActiveTask ? 'true' : 'false'}>
               {agentItems.map((agent) => {
@@ -339,11 +404,16 @@ export function Sidebar({
                     </span>
                     <span className="agent-card-copy">
                       <Text strong>{agent.name}</Text>
-                      <Text type="secondary">{agent.description}</Text>
+                      <Text type="secondary">{agent.description || '主对话'}</Text>
                     </span>
                   </button>
                 );
               })}
+            </div>
+
+            <div className="sidebar-section-row is-sessions">
+              <span>对话</span>
+              <small>{sortedTasks.length} 条</small>
             </div>
 
             <Conversations

@@ -50,7 +50,8 @@ function getTaskAgentId(task: Task, taskAgentMap: Record<string, string>, fallba
 }
 
 function isMainTask(task: Task) {
-  return Boolean(task.sessionKey?.endsWith(':main'));
+  const key = task.sessionKey?.trim();
+  return Boolean(key && (key === 'main' || key.endsWith(':main')));
 }
 
 function agentToSidebarItem(agent: Agent, tasks: Task[], taskAgentMap: Record<string, string>): SidebarAgentItem {
@@ -115,6 +116,26 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
     }
   }, []);
 
+  const applyTaskList = useCallback((nextTasks: Task[], fallbackAgentId?: string) => {
+    setTasks(nextTasks);
+    setTaskAgentMap((current) => {
+      const next = { ...current };
+      nextTasks.forEach((task) => {
+        const mappedAgentId = task.agentId ?? next[task.id] ?? fallbackAgentId;
+        if (mappedAgentId && mappedAgentId !== DEFAULT_AGENT_ID) {
+          next[task.id] = mappedAgentId;
+        }
+      });
+      return next;
+    });
+  }, []);
+
+  const refreshTasks = useCallback(async (fallbackAgentId?: string) => {
+    const nextTasks = await taskApi.listTasks();
+    applyTaskList(nextTasks, fallbackAgentId);
+    return nextTasks;
+  }, [applyTaskList]);
+
   const loadTaskSnapshot = useCallback(async (taskId: string) => {
     const [task, messages, approvals] = await Promise.all([
       taskApi.getTask(taskId),
@@ -175,42 +196,35 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
   useEffect(() => {
     let cancelled = false;
 
-    // Fetch agents from backend
-    agentApi
-      .listAgents()
-      .then((backendAgents) => {
-        if (!cancelled) {
-          setAgents(backendAgents);
-          if (backendAgents.length > 0 && activeAgentId === DEFAULT_AGENT_ID) {
-            setActiveAgentId(backendAgents[0].id);
-          }
+    async function loadInitialData() {
+      try {
+        const [backendAgents, nextTasks] = await Promise.all([
+          agentApi.listAgents().catch(() => []),
+          taskApi.listTasks(),
+        ]);
+        if (cancelled) {
+          return;
         }
-      })
-      .catch(() => { /* agents not critical for initial render */ });
+        const fallbackAgentId = backendAgents[0]?.id;
+        setAgents(backendAgents);
+        if (fallbackAgentId) {
+          setActiveAgentId((current) => (current === DEFAULT_AGENT_ID ? fallbackAgentId : current));
+        }
+        applyTaskList(nextTasks, fallbackAgentId);
+      } catch (error) {
+        if (!cancelled) {
+          toast.error(error instanceof Error ? error.message : '加载任务列表失败');
+        }
+      }
+    }
 
-    taskApi
-      .listTasks()
-      .then(async (nextTasks) => {
-        if (!cancelled) {
-          setTasks(nextTasks);
-          setTaskAgentMap((current) => {
-            const next = { ...current };
-            nextTasks.forEach((task) => {
-              next[task.id] = task.agentId ?? next[task.id] ?? agents[0]?.id ?? DEFAULT_AGENT_ID;
-            });
-            return next;
-          });
-        }
-      })
-      .catch((error) => {
-        toast.error(error instanceof Error ? error.message : '加载任务列表失败');
-      });
+    void loadInitialData();
 
     return () => {
       cancelled = true;
       closeStream();
     };
-  }, [closeStream]);
+  }, [applyTaskList, closeStream]);
 
   const activeAgentTasks = useMemo(
     () => tasks.filter((task) => getTaskAgentId(task, taskAgentMap, activeAgentId) === activeAgentId),
@@ -240,7 +254,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
                 agentId: activeAgentId,
                 title: question.slice(0, 28),
                 userInput: question,
-                intent: 'meeting',
+                intent: 'general',
               });
 
         if (!task) {
@@ -262,13 +276,14 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         setMessagesByTask((current) => upsertTaskRecordItem(current, task.id, createdMessage));
         // OpenClaw Gateway 的首轮事件可能早于浏览器完成 SSE 建连；这里主动刷新一次快照。
         await loadTaskSnapshot(task.id);
+        await refreshTasks(task.agentId ?? activeAgentId);
         setWorkspaceView('chat');
       } catch (error) {
         toast.error(error instanceof Error ? error.message : '发送失败');
         setInputValue(question);
       }
     },
-    [activeAgentId, activeAgentTasks, activeTaskId, loadTaskSnapshot, openTask],
+    [activeAgentId, activeAgentTasks, activeTaskId, loadTaskSnapshot, openTask, refreshTasks],
   );
 
   const submitCommand = useCallback(
@@ -300,12 +315,13 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         [task.id]: task.agentId ?? current[task.id] ?? activeAgentId,
       }));
       await openTask(task.id);
+      await refreshTasks(activeAgentId);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '创建新对话失败');
       setActiveTaskId(undefined);
       setWorkspaceView('home');
     }
-  }, [activeAgentId, closeStream, openTask]);
+  }, [activeAgentId, closeStream, openTask, refreshTasks]);
 
   const openAgentMainTask = useCallback(
     async (agentId: string) => {
@@ -325,12 +341,13 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
           [task.id]: task.agentId ?? current[task.id] ?? agentId,
         }));
         await openTask(task.id);
+        await refreshTasks(agentId);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : '打开 Agent 主对话失败');
         setWorkspaceView('home');
       }
     },
-    [closeStream, openTask, taskAgentMap, tasks],
+    [closeStream, openTask, refreshTasks, taskAgentMap, tasks],
   );
 
   const showFileSpace = useCallback(() => {
@@ -462,9 +479,12 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         collapsed={sidebarCollapsed}
         currentUser={currentUser}
         tasks={activeAgentTasks.filter((task) => !isMainTask(task))}
+        canCreateConversation={Boolean(activeAgentId && activeAgentId !== DEFAULT_AGENT_ID)}
         onActiveChange={(taskId) => void openTask(taskId)}
         onAgentSelect={(agentId) => void openAgentMainTask(agentId)}
+        onCreateConversation={createConversation}
         onCreateAgent={showAgentCreatePage}
+        onToggleSidebar={toggleSidebar}
         onWorkspaceChange={handleWorkspaceChange}
         onLogout={handleLogout}
       />
@@ -474,7 +494,6 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
           <WorkspaceHeader
             sidebarCollapsed={sidebarCollapsed}
             task={activeTask}
-            onCreateConversation={createConversation}
             onToggleSidebar={toggleSidebar}
           />
         )}
