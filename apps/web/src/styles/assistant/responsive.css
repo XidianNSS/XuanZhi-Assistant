@@ -65,6 +65,15 @@
     overflow: auto;
   }
 
+  .task-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .task-artifact-panel {
+    position: static;
+    max-height: none;
+  }
+
   .workspace-title span {
     max-width: 180px;
   }
@@ -117,6 +126,23 @@
     justify-content: space-between;
   }
 
+  .file-agent-filter span {
+    display: none;
+  }
+
+  .file-qclaw-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    min-height: 58px;
+    padding: 0 8px;
+  }
+
+  .file-row-size,
+  .file-row-source,
+  .file-row-time {
+    display: none;
+  }
+
   .file-list {
     width: 100%;
   }
@@ -124,5 +150,14 @@
   .file-card {
     min-height: 76px;
     padding: 14px;
+  }
+
+  .file-preview-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .file-preview-main {
+    border-right: 0;
+    border-bottom: 1px solid #eeeeee;
   }
 }

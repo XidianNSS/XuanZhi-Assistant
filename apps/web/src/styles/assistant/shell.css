@@ -119,9 +119,12 @@
 
 .workspace-body.is-task {
   overflow: auto;
+  padding-right: 16px;
 }
 
 .workspace-body.is-file {
+  height: 100%;
+  min-height: 0;
   padding: 0;
   overflow: hidden;
 }
@@ -131,4 +134,11 @@
   min-width: 0;
   min-height: 0;
   overflow: visible;
+}
+
+.task-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 292px;
+  gap: 18px;
+  min-height: 100%;
 }

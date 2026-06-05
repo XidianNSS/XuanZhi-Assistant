@@ -255,6 +255,7 @@ export class MemoryStore {
     taskId: string;
     role: Message['role'];
     content: string;
+    contextFileIds?: string[];
     status?: Message['status'];
   }) {
     const message: Message = {
@@ -263,6 +264,7 @@ export class MemoryStore {
       taskId: input.taskId,
       role: input.role,
       content: input.content,
+      contextFileIds: input.contextFileIds,
       status: input.status,
       createdAt: nowIso(),
     };
@@ -331,21 +333,24 @@ export class MemoryStore {
   // ── Artifact ──
 
   addArtifact(input: {
+    id?: string;
     userId: string;
     taskId: string;
     type: ArtifactType;
     title: string;
     format: ArtifactFormat;
     content: unknown;
+    fileAsset?: Artifact['fileAsset'];
   }) {
     const artifact: Artifact = {
-      id: `art_${randomUUID()}`,
+      id: input.id ?? `art_${randomUUID()}`,
       userId: input.userId,
       taskId: input.taskId,
       type: input.type,
       title: input.title,
       format: input.format,
       content: input.content,
+      fileAsset: input.fileAsset,
       createdAt: nowIso(),
     };
     this.artifacts.set(input.taskId, [...(this.artifacts.get(input.taskId) ?? []), artifact]);

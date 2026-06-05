@@ -6,6 +6,7 @@ import { createApprovalService } from '../services/approvalService.js';
 import { createArtifactService } from '../services/artifactService.js';
 import { createAuthService } from '../services/authService.js';
 import { createEventService } from '../services/eventService.js';
+import { createFileAssetService } from '../services/fileAssetService.js';
 import { createMessageService } from '../services/messageService.js';
 import { createSessionService } from '../services/sessionService.js';
 import { createTaskService } from '../services/taskService.js';
@@ -15,6 +16,7 @@ export function createAppDependencies(config: AppConfig = loadConfig()) {
   const stream = new StreamHub();
   const agentService = createAgentService(store);
   const sessionService = createSessionService(store);
+  const fileAssetService = createFileAssetService(store);
 
   return {
     config,
@@ -23,10 +25,11 @@ export function createAppDependencies(config: AppConfig = loadConfig()) {
     services: {
       agents: agentService,
       approvals: createApprovalService(store, stream),
-      artifacts: createArtifactService(store, stream),
+      artifacts: createArtifactService(store, stream, fileAssetService),
       auth: createAuthService(store),
       events: createEventService(store, stream),
-      messages: createMessageService(store, stream, sessionService),
+      files: fileAssetService,
+      messages: createMessageService(store, stream, sessionService, fileAssetService),
       sessions: sessionService,
       tasks: createTaskService(store, stream),
     },

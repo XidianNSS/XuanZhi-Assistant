@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { promptDrafts } from '../../data/assistantData';
 import * as agentApi from '../../services/agentApi';
 import * as approvalApi from '../../services/approvalApi';
+import * as fileApi from '../../services/fileApi';
 import * as messageApi from '../../services/messageApi';
 import { subscribeTaskStream } from '../../services/streamClient';
 import * as taskApi from '../../services/taskApi';
@@ -11,13 +12,17 @@ import {
   upsertById,
   upsertTaskRecordItem,
 } from '../../stores/taskStore';
-import type { Agent, AgentEvent, Approval, Message, StreamEvent, Task, User } from '../../types/protocol';
+import type { Agent, AgentEvent, Approval, FileAsset, FileAssetCategory, FileFolder, Message, StreamEvent, Task, User } from '../../types/protocol';
+import { qclawFileCategory } from '../../utils/fileCategory';
 import { ApprovalCard } from '../chat/ApprovalCard';
 import { ChatComposer } from '../chat/ChatComposer';
 import { ChatHome } from '../chat/ChatHome';
 import { ChatPanel } from '../chat/ChatPanel';
+import { FilePreviewModal } from '../files/FilePreviewModal';
 import { FileSpacePage } from '../files/FileSpacePage';
+import { TaskArtifactPanel } from '../files/TaskArtifactPanel';
 import { toast } from '../ui';
+import { Icon } from '../ui/icons';
 import { AgentCreatePage } from './AgentCreatePage';
 import { Sidebar } from './Sidebar';
 import type { SidebarAgentItem, WorkspaceKey } from './Sidebar';
@@ -31,6 +36,7 @@ type AssistantShellProps = {
 };
 
 function getStreamEventTaskId(event: StreamEvent) {
+  if (event.type === 'file.asset.created') return event.data.taskId;
   return event.type === 'task.updated' ? event.data.id : event.data.taskId;
 }
 
@@ -78,6 +84,13 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
   const [messagesByTask, setMessagesByTask] = useState<Record<string, Message[]>>({});
   const [approvalsByTask, setApprovalsByTask] = useState<Record<string, Approval[]>>({});
   const [_eventsByTask, setEventsByTask] = useState<Record<string, AgentEvent[]>>({});
+  const [files, setFiles] = useState<FileAsset[]>([]);
+  const [filesByTask, setFilesByTask] = useState<Record<string, FileAsset[]>>({});
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [activeFileCategory, setActiveFileCategory] = useState<FileAssetCategory | 'all'>('all');
+  const [previewFile, setPreviewFile] = useState<FileAsset>();
+  const [folders, setFolders] = useState<FileFolder[]>([]);
+  const [contextFiles, setContextFiles] = useState<FileAsset[]>([]);
   const [approvingId, setApprovingId] = useState<string>();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // 同一时间只订阅当前任务的 SSE，切换任务或登出时立即关闭，避免旧任务事件写入新视图。
@@ -103,6 +116,20 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
       case 'agent.event.updated':
         setEventsByTask((current) => upsertTaskRecordItem(current, event.data.taskId, event.data));
         break;
+      case 'artifact.created':
+        if (event.data.fileAsset) {
+          const fileAsset = event.data.fileAsset;
+          setFiles((current) => upsertById(current, fileAsset));
+          setFilesByTask((current) => upsertTaskRecordItem(current, event.data.taskId, fileAsset));
+        }
+        break;
+      case 'file.asset.created':
+        setFiles((current) => upsertById(current, event.data));
+        if (event.data.taskId) {
+          const taskId = event.data.taskId;
+          setFilesByTask((current) => upsertTaskRecordItem(current, taskId, event.data));
+        }
+        break;
       case 'approval.requested':
       case 'approval.updated':
         setApprovalsByTask((current) => upsertTaskRecordItem(current, event.data.taskId, event.data));
@@ -111,17 +138,53 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
   }, []);
 
   const loadTaskSnapshot = useCallback(async (taskId: string) => {
-    const [task, messages, approvals] = await Promise.all([
+    const [task, messages, approvals, taskFiles] = await Promise.all([
       taskApi.getTask(taskId),
       messageApi.getTaskMessages(taskId),
       taskApi.getTaskApprovals(taskId),
+      fileApi.listTaskFiles(taskId),
     ]);
 
     setTasks((current) => upsertById(current, task));
     setMessagesByTask((current) => replaceTaskRecord(current, taskId, messages));
     setApprovalsByTask((current) => replaceTaskRecord(current, taskId, approvals));
+    setFilesByTask((current) => replaceTaskRecord(current, taskId, taskFiles));
+    setFiles((current) => {
+      const byId = new Map(current.map((file) => [file.id, file]));
+      taskFiles.forEach((file) => byId.set(file.id, file));
+      return [...byId.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    });
 
     return task;
+  }, []);
+
+  const loadFiles = useCallback(async () => {
+    setFilesLoading(true);
+    try {
+      const [activeFiles, deletedFiles] = await Promise.all([
+        fileApi.listFiles(),
+        fileApi.listFiles({ deleted: true }),
+      ]);
+      const fileMap = new Map(activeFiles.map((file) => [file.id, file]));
+      deletedFiles.forEach((file) => fileMap.set(file.id, file));
+      const nextFiles = [...fileMap.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+      const nextFolders = await fileApi.listFolders();
+      setFiles(nextFiles);
+      setFolders(nextFolders);
+      setFilesByTask((current) => {
+        const next = { ...current };
+        nextFiles.forEach((file) => {
+          if (file.taskId) {
+            next[file.taskId] = upsertById(next[file.taskId] ?? [], file);
+          }
+        });
+        return next;
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '加载文件空间失败');
+    } finally {
+      setFilesLoading(false);
+    }
   }, []);
 
   const openTask = useCallback(
@@ -201,11 +264,13 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         toast.error(error instanceof Error ? error.message : '加载任务列表失败');
       });
 
+    void loadFiles();
+
     return () => {
       cancelled = true;
       closeStream();
     };
-  }, [closeStream]);
+  }, [closeStream, loadFiles]);
 
   const activeAgentTasks = useMemo(
     () => tasks.filter((task) => getTaskAgentId(task, taskAgentMap, activeAgentId) === activeAgentId),
@@ -216,6 +281,25 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
     () => agents.map((agent) => agentToSidebarItem(agent, tasks, taskAgentMap)),
     [agents, taskAgentMap, tasks],
   );
+
+  const fileCounts = useMemo(() => {
+    const activeFiles = files.filter((file) => !file.deletedAt);
+    const next: Record<FileAssetCategory | 'all', number> = {
+      all: activeFiles.length,
+      code: 0,
+      data: 0,
+      documents: 0,
+      images: 0,
+      others: 0,
+      presentations: 0,
+      reports: 0,
+      spreadsheets: 0,
+    };
+    activeFiles.forEach((file) => {
+      next[qclawFileCategory(file)] += 1;
+    });
+    return next;
+  }, [files]);
 
   const submitMessage = useCallback(
     async (value: string) => {
@@ -253,8 +337,13 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
           await openTask(task.id);
         }
 
-        const createdMessage = await messageApi.sendTaskMessage(task.id, question);
+        const createdMessage = await messageApi.sendTaskMessage(
+          task.id,
+          question,
+          contextFiles.map((file) => file.id),
+        );
         setMessagesByTask((current) => upsertTaskRecordItem(current, task.id, createdMessage));
+        setContextFiles([]);
         // OpenClaw Gateway 的首轮事件可能早于浏览器完成 SSE 建连；这里主动刷新一次快照。
         await loadTaskSnapshot(task.id);
         setWorkspaceView('chat');
@@ -263,7 +352,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         setInputValue(question);
       }
     },
-    [activeAgentId, activeAgentTasks, activeTaskId, loadTaskSnapshot, openTask],
+    [activeAgentId, activeAgentTasks, activeTaskId, contextFiles, loadTaskSnapshot, openTask],
   );
 
   const createConversation = useCallback(() => {
@@ -278,7 +367,8 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
     setActiveTaskId(undefined);
     setInputValue('');
     setWorkspaceView('file');
-  }, [closeStream]);
+    void loadFiles();
+  }, [closeStream, loadFiles]);
 
   const handleWorkspaceChange = useCallback(
     (workspace: WorkspaceKey) => {
@@ -308,6 +398,52 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
     setInputValue('');
     setWorkspaceView('agent-picker');
   }, [closeStream]);
+
+  const handleFileCategoryChange = useCallback((category: FileAssetCategory | 'all') => {
+    setActiveFileCategory(category);
+    setWorkspaceView('file');
+    setActiveTaskId(undefined);
+  }, []);
+
+  const handleFileCreated = useCallback((file: FileAsset) => {
+    setFiles((current) => upsertById(current, file));
+    if (file.taskId) {
+      const taskId = file.taskId;
+      setFilesByTask((current) => upsertTaskRecordItem(current, taskId, file));
+    }
+  }, []);
+
+  const handleFileChanged = useCallback((file: FileAsset) => {
+    setFiles((current) => upsertById(current, file));
+    if (file.taskId) {
+      const taskId = file.taskId;
+      setFilesByTask((current) => upsertTaskRecordItem(current, taskId, file));
+    }
+    setPreviewFile((current) => (current?.id === file.id ? file : current));
+  }, []);
+
+  const handleFolderCreated = useCallback((folder: FileFolder) => {
+    setFolders((current) => upsertById(current, folder));
+  }, []);
+
+  const handleFolderChanged = useCallback((folder: FileFolder) => {
+    setFolders((current) => upsertById(current, folder));
+  }, []);
+
+  const handleFolderDeleted = useCallback((folderId: string) => {
+    setFolders((current) => current.filter((folder) => folder.id !== folderId));
+    setFiles((current) => current.map((file) => (
+      file.folderId === folderId ? { ...file, folderId: undefined } : file
+    )));
+  }, []);
+
+  const useFileAsContext = useCallback((file: FileAsset) => {
+    setWorkspaceView('home');
+    setContextFiles((current) => upsertById(current, file));
+    setInputValue(
+      `请基于文件「${file.name}」继续处理。\n文件路径：${file.workspacePath}\n需求：`,
+    );
+  }, []);
 
   const selectAgent = useCallback(
     (agentId: string) => {
@@ -383,6 +519,10 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
     setMessagesByTask({});
     setApprovalsByTask({});
     setEventsByTask({});
+    setFiles([]);
+    setFilesByTask({});
+    setPreviewFile(undefined);
+    setActiveFileCategory('all');
     setTaskAgentMap({});
     setAgents([]);
     setActiveAgentId(DEFAULT_AGENT_ID);
@@ -395,6 +535,7 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
   const activeAgent = agents.find((agent) => agent.id === activeAgentId) ?? agents[0];
   const needsAgentSetup = Boolean(pendingInitialSetup && activeAgent && !activeAgent.profile);
   const activeMessages = activeTaskId ? messagesByTask[activeTaskId] ?? [] : [];
+  const activeFiles = activeTaskId ? filesByTask[activeTaskId] ?? [] : [];
   const activeApprovals = activeTaskId ? approvalsByTask[activeTaskId] ?? [] : [];
   const activePendingApprovals = activeApprovals.filter((approval) => approval.status === 'pending');
   const isChatting = Boolean(activeTask);
@@ -412,11 +553,14 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         agentItems={agentItems}
         collapsed={sidebarCollapsed}
         currentUser={currentUser}
+        activeFileCategory={activeFileCategory}
+        fileCounts={fileCounts}
         tasks={activeAgentTasks}
         onActiveChange={(taskId) => void openTask(taskId)}
         onAgentSelect={selectAgent}
         onCreateAgent={showAgentCreatePage}
         onCreateConversation={createConversation}
+        onFileCategoryChange={handleFileCategoryChange}
         onWorkspaceChange={handleWorkspaceChange}
         onLogout={handleLogout}
       />
@@ -433,7 +577,22 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
 
         <div className={`workspace-body ${isFileSpace ? 'is-file' : isTeamSpace ? 'is-team' : isChatting ? 'is-task' : ''}`}>
           {isFileSpace ? (
-            <FileSpacePage />
+            <FileSpacePage
+              activeAgentId={activeAgentId}
+              activeCategory={activeFileCategory}
+              files={files}
+              folders={folders}
+              loading={filesLoading}
+              onCategoryChange={handleFileCategoryChange}
+              onFileCreated={handleFileCreated}
+              onFileChanged={handleFileChanged}
+              onFolderCreated={handleFolderCreated}
+              onFolderChanged={handleFolderChanged}
+              onFolderDeleted={handleFolderDeleted}
+              onOpenTask={(taskId) => void openTask(taskId)}
+              onRefresh={() => void loadFiles()}
+              onUseFileAsContext={useFileAsContext}
+            />
           ) : isTeamSpace ? (
             <TeamAdminPage currentUser={currentUser} />
           ) : isAgentPicker ? (
@@ -449,11 +608,19 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
                 }}
               />
           ) : isChatting && activeTask ? (
-            <section className="task-chat-column">
-              <ChatPanel
-                messages={activeMessages}
-                onCopyMessage={copyMessage}
-                onEditMessage={editMessage}
+            <section className={`task-workspace ${activeFiles.length > 0 ? 'has-artifacts' : ''}`}>
+              <section className="task-chat-column">
+                <ChatPanel
+                  files={activeFiles}
+                  messages={activeMessages}
+                  onCopyMessage={copyMessage}
+                  onEditMessage={editMessage}
+                />
+              </section>
+              <TaskArtifactPanel
+                files={activeFiles}
+                onPreview={setPreviewFile}
+                onUseAsContext={useFileAsContext}
               />
             </section>
           ) : (
@@ -469,6 +636,23 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
         {isChatting && !isFileSpace && !isTeamSpace ? (
           <footer className="composer-area">
             <div className="composer-stack">
+              {contextFiles.length > 0 ? (
+                <div className="composer-context-files" aria-label="已加入当前对话的文件">
+                  {contextFiles.map((file) => (
+                    <span className="composer-context-file" key={file.id}>
+                      <Icon name="paperclip" />
+                      {file.name}
+                      <button
+                        type="button"
+                        aria-label={`移除 ${file.name}`}
+                        onClick={() => setContextFiles((current) => current.filter((item) => item.id !== file.id))}
+                      >
+                        <Icon name="x" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               {activePendingApprovals.length > 0 ? (
                 <div className="composer-approval-stack">
                   {activePendingApprovals.map((approval) => (
@@ -486,6 +670,21 @@ export function AssistantShell({ currentUser, token, onLogout }: AssistantShellP
             </div>
           </footer>
         ) : null}
+        <FilePreviewModal
+          file={previewFile}
+          folders={folders}
+          onClose={() => setPreviewFile(undefined)}
+          onFileChanged={handleFileChanged}
+          onFileCreated={handleFileCreated}
+          onOpenTask={(taskId) => {
+            setPreviewFile(undefined);
+            void openTask(taskId);
+          }}
+          onUseAsContext={(file) => {
+            setPreviewFile(undefined);
+            useFileAsContext(file);
+          }}
+        />
       </section>
     </main>
   );

@@ -185,6 +185,8 @@ function makeCreateArtifact(cfg: { baseUrl: string; token: string }) {
           title: requireString(params, "title"),
           format: requireString(params, "format"),
           content: params.content,
+          fileName: optionalString(params, "fileName"),
+          mimeType: optionalString(params, "mimeType"),
         },
       }),
     );
@@ -260,6 +262,8 @@ const artifactParams = buildToolParams(["taskId", "type", "title", "format"], {
   title: stringProp,
   format: enumProp(["markdown", "json", "diff", "text"]),
   content: {},
+  fileName: stringProp,
+  mimeType: stringProp,
 });
 
 const approvalParams = buildToolParams(["taskId", "title", "description", "action"], {

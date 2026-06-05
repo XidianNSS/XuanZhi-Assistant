@@ -4,12 +4,14 @@ import { getOpenClawClient } from '../agents/openclawClient.js';
 import { runOpenClawSession } from '../agents/agentRunner.js';
 import type { MemoryStore } from '../repositories/memoryStore.js';
 import type { StreamHub } from '../realtime/streamHub.js';
+import type { FileAssetService } from './fileAssetService.js';
 import type { SessionService } from './sessionService.js';
 
 export function createMessageService(
   store: MemoryStore,
   stream: StreamHub,
   sessionService?: SessionService,
+  fileService?: FileAssetService,
 ) {
   const handleRuntimeFailure = (task: Task, error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
@@ -42,12 +44,13 @@ export function createMessageService(
   };
 
   return {
-    createMessage(task: Task, input: { role?: Message['role']; content: string }) {
+    createMessage(task: Task, input: { role?: Message['role']; content: string; contextFileIds?: string[] }) {
       const message = store.addMessage({
         userId: task.userId,
         taskId: task.id,
         role: input.role === 'assistant' || input.role === 'system' ? input.role : 'user',
         content: input.content,
+        contextFileIds: input.contextFileIds,
       });
       stream.broadcast(task.id, { type: 'message.created', data: message });
 
@@ -55,11 +58,21 @@ export function createMessageService(
       if (message.role === 'user') {
         const client = getOpenClawClient();
         const agent = store.getAgentByUserId(task.userId);
+        const contextText = input.contextFileIds?.length && fileService
+          ? fileService.buildContextText(task.userId, input.contextFileIds)
+          : '';
+        const runtimeContent = contextText
+          ? `${message.content}\n\n---\n以下文件已加入本轮上下文：\n${contextText}`
+          : message.content;
+
+        if (input.contextFileIds?.length && fileService) {
+          fileService.recordUsedInChat(task.userId, input.contextFileIds, task.id);
+        }
 
         if (client.isConnected()) {
           const isFollowup = !!agent?.gatewayAgentId;
           runAgent(task, () =>
-            runOpenClawSession(task, message.content, store, stream, isFollowup),
+            runOpenClawSession(task, runtimeContent, store, stream, isFollowup),
           );
         } else {
           // OpenClaw 未连接，先触发连接再执行
@@ -67,7 +80,7 @@ export function createMessageService(
             await client.connect();
             const freshAgent = store.getAgentByUserId(task.userId);
             const isFollowup = !!freshAgent?.gatewayAgentId;
-            await runOpenClawSession(task, message.content, store, stream, isFollowup);
+            await runOpenClawSession(task, runtimeContent, store, stream, isFollowup);
           });
         }
       }
