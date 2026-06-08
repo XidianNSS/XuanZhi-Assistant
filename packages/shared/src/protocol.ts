@@ -48,6 +48,7 @@ export type Message = {
   taskId: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  contextFileIds?: string[];
   status?: MessageStatus;
   planSteps?: MessagePlanStep[];
   planFooter?: string;
@@ -72,6 +73,154 @@ export type ArtifactType = 'plan' | 'meeting_draft' | 'code_diff' | 'report' | '
 
 export type ArtifactFormat = 'markdown' | 'json' | 'diff' | 'text';
 
+export type FileAssetCategory =
+  | 'documents'
+  | 'spreadsheets'
+  | 'images'
+  | 'presentations'
+  | 'reports'
+  | 'code'
+  | 'data'
+  | 'others';
+
+export type FileAssetSource = 'assistant_generated' | 'user_uploaded' | 'tool_output' | 'workspace_imported';
+
+export type FilePermissionRole = 'viewer' | 'editor';
+
+export type FilePermission = {
+  id: string;
+  fileId: string;
+  versionGroupId?: string;
+  principalType: 'user' | 'team' | 'public_link';
+  principalId: string;
+  role: FilePermissionRole;
+  revokedAt?: string;
+  expiresAt?: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type FileActivityType =
+  | 'created'
+  | 'uploaded'
+  | 'previewed'
+  | 'downloaded'
+  | 'used_in_chat'
+  | 'updated'
+  | 'deleted'
+  | 'restored'
+  | 'shared'
+  | 'version_created';
+
+export type FileActivity = {
+  id: string;
+  fileId: string;
+  userId: string;
+  type: FileActivityType;
+  message: string;
+  metadata?: unknown;
+  createdAt: string;
+};
+
+export type FileFolder = {
+  id: string;
+  userId: string;
+  name: string;
+  parentFolderId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FileFolderUpdateInput = {
+  name?: string;
+  parentFolderId?: string | null;
+};
+
+export type FileAsset = {
+  id: string;
+  userId: string;
+  taskId?: string;
+  agentId?: string;
+  artifactId?: string;
+  versionGroupId: string;
+  version: number;
+  parentFileId?: string;
+  folderId?: string;
+  name: string;
+  title: string;
+  category: FileAssetCategory;
+  source: FileAssetSource;
+  mimeType: string;
+  extension: string;
+  sizeBytes: number;
+  contentHash?: string;
+  duplicateOfFileId?: string;
+  path: string;
+  workspacePath: string;
+  summary?: string;
+  previewText?: string;
+  tags?: string[];
+  isFavorite?: boolean;
+  deletedAt?: string;
+  deletedBy?: string;
+  permissions?: FilePermission[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FileAssetContent =
+  | {
+      file: FileAsset;
+      kind: 'text';
+      text: string;
+    }
+  | {
+      file: FileAsset;
+      kind: 'image';
+      dataUrl: string;
+    }
+  | {
+      file: FileAsset;
+      kind: 'unsupported';
+      message: string;
+    };
+
+export type FileAssetUploadInput = {
+  name: string;
+  content: string;
+  encoding?: 'text' | 'base64';
+  mimeType?: string;
+  category?: FileAssetCategory;
+  taskId?: string;
+  folderId?: string;
+  parentFileId?: string;
+  title?: string;
+  summary?: string;
+  tags?: string[];
+};
+
+export type FileListResult = {
+  files: FileAsset[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+};
+
+export type FileAssetUpdateInput = {
+  title?: string;
+  summary?: string;
+  folderId?: string | null;
+  tags?: string[];
+  isFavorite?: boolean;
+};
+
+export type FileBatchActionInput = {
+  fileIds: string[];
+  action: 'delete' | 'restore' | 'favorite' | 'unfavorite' | 'move';
+  folderId?: string | null;
+};
+
 export type Artifact = {
   id: string;
   userId: string;
@@ -80,6 +229,7 @@ export type Artifact = {
   title: string;
   format: ArtifactFormat;
   content: unknown;
+  fileAsset?: FileAsset;
   createdAt: string;
 };
 
@@ -105,6 +255,7 @@ export type StreamEvent =
   | { type: 'agent.event.created'; data: AgentEvent }
   | { type: 'agent.event.updated'; data: AgentEvent }
   | { type: 'artifact.created'; data: Artifact }
+  | { type: 'file.asset.created'; data: FileAsset }
   | { type: 'approval.requested'; data: Approval }
   | { type: 'approval.updated'; data: Approval };
 

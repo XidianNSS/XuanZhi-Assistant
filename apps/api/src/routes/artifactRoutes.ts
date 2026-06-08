@@ -16,6 +16,8 @@ export function registerArtifactRoutes(app: FastifyInstance, dependencies: AppDe
       title?: string;
       format?: ArtifactFormat;
       content?: unknown;
+      fileName?: string;
+      mimeType?: string;
     };
     if (!isArtifactType(body.type) || !body.title || !isArtifactFormat(body.format)) {
       return reply.status(400).send({ message: '产物参数无效' });
@@ -25,6 +27,8 @@ export function registerArtifactRoutes(app: FastifyInstance, dependencies: AppDe
       title: body.title,
       format: body.format,
       content: body.content,
+      fileName: body.fileName,
+      mimeType: body.mimeType,
     });
     return reply.status(201).send(artifact);
   });

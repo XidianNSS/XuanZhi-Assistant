@@ -6,7 +6,10 @@ import type { AppConfig } from './config/env.js';
 import { registerCors } from './http/cors.js';
 
 export function buildApp(config?: AppConfig) {
-  const app = Fastify({ logger: false });
+  const app = Fastify({
+    bodyLimit: 40 * 1024 * 1024,
+    logger: false,
+  });
   const dependencies = createAppDependencies(config);
 
   registerCors(app);

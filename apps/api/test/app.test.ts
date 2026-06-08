@@ -236,7 +236,13 @@ async function createTask(
   return response.json<Task>();
 }
 
-async function sendUserMessage(app: FastifyInstance, token: string, taskId: string, content: string) {
+async function sendUserMessage(
+  app: FastifyInstance,
+  token: string,
+  taskId: string,
+  content: string,
+  contextFileIds?: string[],
+) {
   const response = await app.inject({
     method: 'POST',
     url: `/api/tasks/${taskId}/messages`,
@@ -246,6 +252,7 @@ async function sendUserMessage(app: FastifyInstance, token: string, taskId: stri
     payload: {
       role: 'user',
       content,
+      contextFileIds,
     },
   });
 
@@ -1019,5 +1026,94 @@ describe('xuanzhi api with OpenClaw Gateway', () => {
     });
 
     expect(crossUser.statusCode).toBe(404);
+  });
+
+  it('lists task file assets on a separate route without changing generated file downloads', async () => {
+    const userA = await login(app, 'alice');
+    const task = await createTask(app, userA.token, 'Collect generated files');
+    const workspace = userA.agent?.workspace;
+
+    expect(workspace).toBeTruthy();
+    mkdirSync(join(workspace!, 'outputs'), { recursive: true });
+    writeFileSync(join(workspace!, 'outputs', 'report.md'), '# Report', 'utf8');
+
+    const uploadResponse = await app.inject({
+      method: 'POST',
+      url: '/api/files/upload',
+      headers: { authorization: `Bearer ${userA.token}` },
+      payload: {
+        name: 'notes.md',
+        title: 'Research notes',
+        content: '# Notes\n\nImportant context',
+        mimeType: 'text/markdown',
+        category: 'documents',
+        taskId: task.id,
+      },
+    });
+
+    expect(uploadResponse.statusCode).toBe(201);
+
+    const listResponse = await app.inject({
+      method: 'GET',
+      url: `/api/tasks/${task.id}/file-assets`,
+      headers: { authorization: `Bearer ${userA.token}` },
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json<Array<{ name: string; workspacePath: string }>>()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'notes.md',
+          workspacePath: expect.stringContaining('notes.md'),
+        }),
+      ]),
+    );
+
+    const downloadResponse = await app.inject({
+      method: 'GET',
+      url: `/api/tasks/${task.id}/files?path=${encodeURIComponent('outputs/report.md')}`,
+      headers: { authorization: `Bearer ${userA.token}` },
+    });
+
+    expect(downloadResponse.statusCode).toBe(200);
+    expect(downloadResponse.body).toContain('# Report');
+  });
+
+  it('stores context file ids and sends file context through the OpenClaw session', async () => {
+    const userA = await login(app, 'alice');
+    const task = await createTask(app, userA.token, 'Use a context file');
+
+    const uploadResponse = await app.inject({
+      method: 'POST',
+      url: '/api/files/upload',
+      headers: { authorization: `Bearer ${userA.token}` },
+      payload: {
+        name: 'brief.md',
+        title: 'Brief',
+        content: 'Use this brief as source material.',
+        mimeType: 'text/markdown',
+        taskId: task.id,
+      },
+    });
+    expect(uploadResponse.statusCode).toBe(201);
+    const file = uploadResponse.json<{ id: string }>();
+
+    const message = await sendUserMessage(
+      app,
+      userA.token,
+      task.id,
+      'Summarize the attached file',
+      [file.id],
+    );
+
+    expect(message.contextFileIds).toEqual([file.id]);
+
+    const chatSendCall = gateway.calls.find((call) => call.method === 'chat.send');
+    expect(chatSendCall?.params).toMatchObject({
+      sessionKey: expect.stringContaining(task.id),
+    });
+    expect((chatSendCall?.params as { message?: string }).message).toContain('Summarize the attached file');
+    expect((chatSendCall?.params as { message?: string }).message).toContain('brief.md');
+    expect((chatSendCall?.params as { message?: string }).message).toContain('Use this brief as source material.');
   });
 });

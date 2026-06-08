@@ -3,7 +3,7 @@ import { Conversations } from '@ant-design/x';
 
 import { Avatar, Button, Input, Modal, Text, Tooltip } from '../ui';
 import { Icon } from '../ui/icons';
-import type { Task, User } from '../../types/protocol';
+import type { FileAssetCategory, Task, User } from '../../types/protocol';
 import { AgentProfilePanel } from './AgentProfilePanel';
 
 type SidebarProps = {
@@ -13,12 +13,15 @@ type SidebarProps = {
   agentItems: SidebarAgentItem[];
   collapsed: boolean;
   currentUser: User;
+  activeFileCategory: FileAssetCategory | 'all';
+  fileCounts: Record<FileAssetCategory | 'all', number>;
   tasks: Task[];
   canCreateConversation: boolean;
   onActiveChange: (taskId: string) => void;
   onAgentSelect: (agentId: string) => void;
   onCreateConversation: () => void;
   onCreateAgent: () => void;
+  onFileCategoryChange: (category: FileAssetCategory | 'all') => void;
   onToggleSidebar: () => void;
   onWorkspaceChange: (workspace: WorkspaceKey) => void;
   onLogout: () => void;
@@ -61,16 +64,15 @@ const adminNavRailItems: Array<{ key: WorkspaceKey; label: string; icon: ReactNo
   { key: 'team', label: '团队', icon: <Icon name="database" /> },
 ];
 
-const fileCategories = [
-  { key: 'all', label: '全部', count: 1, icon: <Icon name="folder" /> },
-  { key: 'docs', label: '文档', count: 1, icon: <Icon name="file-text" /> },
-  { key: 'sheets', label: '表格', count: 0, icon: <Icon name="table" /> },
-  { key: 'images', label: '图片', count: 0, icon: <Icon name="image" /> },
-  { key: 'code', label: '代码', count: 0, icon: <Icon name="file-search" /> },
-  { key: 'ppt', label: 'PPT', count: 0, icon: <Icon name="book" /> },
-  { key: 'pdf', label: 'PDF', count: 0, icon: <Icon name="file-text" /> },
-  { key: 'other', label: '其他', count: 0, icon: <Icon name="more" /> },
-  { key: 'friends', label: '来自好友', icon: <Icon name="share" /> },
+const fileCategories: Array<{ key: FileAssetCategory | 'all'; label: string; icon: ReactNode }> = [
+  { key: 'all', label: '全部类型', icon: <Icon name="folder" /> },
+  { key: 'documents', label: '文档', icon: <Icon name="file-text" /> },
+  { key: 'spreadsheets', label: '表格', icon: <Icon name="table" /> },
+  { key: 'images', label: '图片', icon: <Icon name="image" /> },
+  { key: 'code', label: '代码', icon: <Icon name="file-search" /> },
+  { key: 'presentations', label: 'PPT', icon: <Icon name="book" /> },
+  { key: 'reports', label: 'PDF', icon: <Icon name="file-search" /> },
+  { key: 'others', label: '其他', icon: <Icon name="more" /> },
 ];
 
 const settingsMenuItems = [
@@ -86,7 +88,6 @@ const settingsMenuItems = [
 function SettingsCenter({ currentUser, onLogout }: { currentUser: User; onLogout: () => void }) {
   const [activeSetting, setActiveSetting] = useState('general');
   const isAdmin = currentUser.role === 'admin';
-
   const activeLabel = settingsMenuItems.find((m) => m.key === activeSetting)?.label ?? '通用设置';
 
   return (
@@ -156,8 +157,8 @@ function SettingsCenter({ currentUser, onLogout }: { currentUser: User; onLogout
 
             <div className="settings-switch-list">
               {[
-                ['龙虾管家', '开启后可实时保护 AI 安全，防范漏洞攻击、拦截恶意指令。'],
-                ['休眠阻止', '开启后，电脑不会进入休眠模式，玄知助手会保持活跃状态。'],
+                ['安全管家', '开启后可实时保护 AI 安全，防范漏洞攻击、拦截恶意指令。'],
+                ['休眠阻止', '开启后电脑不会进入休眠模式，玄知助手会保持活跃状态。'],
                 ['云端同步', 'AI 生成的文件将自动同步至云端，方便跨设备访问和备份。'],
                 ['高级功能设置', '高级功能使用过程中会带来额外 Token 消耗。'],
               ].map(([title, description]) => (
@@ -183,39 +184,42 @@ function SettingsCenter({ currentUser, onLogout }: { currentUser: User; onLogout
   );
 }
 
-function FileSidebarPanel() {
+function FileSidebarPanel({
+  activeCategory,
+  counts,
+  onCategoryChange,
+}: {
+  activeCategory: FileAssetCategory | 'all';
+  counts: Record<FileAssetCategory | 'all', number>;
+  onCategoryChange: (category: FileAssetCategory | 'all') => void;
+}) {
   return (
     <div className="file-sidebar-panel">
       <Text className="file-sidebar-title" strong>
         文件空间
       </Text>
+      <div className="file-sidebar-storage">
+        <span>云端文件</span>
+        <span>
+          <Icon name="cloud" />
+          {counts.all} 个文件
+        </span>
+      </div>
       <div className="file-category-list" aria-label="文件分类">
         {fileCategories.map((item) => (
           <button
-            className={item.key === 'all' ? 'file-category-item is-active' : 'file-category-item'}
+            className={item.key === activeCategory ? 'file-category-item is-active' : 'file-category-item'}
             key={item.key}
             type="button"
+            onClick={() => onCategoryChange(item.key)}
           >
             <span className="file-category-main">
               {item.icon}
               <span>{item.label}</span>
             </span>
-            {'count' in item ? <span className="file-category-count">{item.count}</span> : null}
+            <span className="file-category-count">{counts[item.key] ?? 0}</span>
           </button>
         ))}
-      </div>
-      <Text className="file-sidebar-section" type="secondary">
-        外部文件
-      </Text>
-      <div className="external-file-list">
-        <button className="external-file-item" type="button">
-          <span className="external-file-icon is-doc">T</span>
-          <span>腾讯文档</span>
-        </button>
-        <button className="external-file-item" type="button">
-          <span className="external-file-icon is-knowledge">i</span>
-          <span>ima 知识库</span>
-        </button>
       </div>
     </div>
   );
@@ -228,22 +232,20 @@ export function Sidebar({
   agentItems,
   collapsed,
   currentUser,
+  activeFileCategory,
+  fileCounts,
   tasks,
   canCreateConversation,
   onActiveChange,
   onAgentSelect,
   onCreateConversation,
   onCreateAgent,
+  onFileCategoryChange,
   onToggleSidebar,
   onWorkspaceChange,
   onLogout,
 }: SidebarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
-
-  const openSettings = () => {
-    setSettingsOpen(true);
-  };
-
   const hasActiveTask = agentItems.some((agent) => agent.isRunning);
   const navRailItems = currentUser.role === 'admin'
     ? [...baseNavRailItems, ...adminNavRailItems]
@@ -261,6 +263,7 @@ export function Sidebar({
         <span className="conversation-title">
           {timeLabel ? <span className="conversation-title-time">{timeLabel}</span> : null}
           <span className="conversation-title-text">{task.title}</span>
+          {isSessionTask ? <span className="conversation-badge" title="OpenClaw 历史会话">历史</span> : null}
         </span>
       ),
       icon: taskActive ? (
@@ -335,7 +338,7 @@ export function Sidebar({
               <Icon name="plus" />
             </button>
           </Tooltip>
-          <button className="nav-rail-icon settings-rail-button" type="button" aria-label="设置" onClick={openSettings}>
+          <button className="nav-rail-icon settings-rail-button" type="button" aria-label="设置" onClick={() => setSettingsOpen(true)}>
             <Icon name="settings" />
           </button>
         </div>
@@ -343,7 +346,11 @@ export function Sidebar({
 
       <div className="assistant-sidebar-panel" aria-hidden={collapsed}>
         {activeWorkspace === 'file' ? (
-          <FileSidebarPanel />
+          <FileSidebarPanel
+            activeCategory={activeFileCategory}
+            counts={fileCounts}
+            onCategoryChange={onFileCategoryChange}
+          />
         ) : activeWorkspace === 'team' ? (
           <div className="file-sidebar-panel">
             <Text className="file-sidebar-title" strong>

@@ -4,12 +4,14 @@ import { getOpenClawClient } from '../agents/openclawClient.js';
 import { runOpenClawSession } from '../agents/agentRunner.js';
 import type { MemoryStore } from '../repositories/memoryStore.js';
 import type { StreamHub } from '../realtime/streamHub.js';
+import type { FileAssetService } from './fileAssetService.js';
 import type { SessionService } from './sessionService.js';
 
 export function createMessageService(
   store: MemoryStore,
   stream: StreamHub,
   sessionService?: SessionService,
+  fileService?: FileAssetService,
 ) {
   function titleFromMessage(content: string) {
     return content.trim().replace(/\s+/g, ' ').slice(0, 28);
@@ -50,7 +52,7 @@ export function createMessageService(
   };
 
   return {
-    createMessage(task: Task, input: { role?: Message['role']; content: string }) {
+    createMessage(task: Task, input: { role?: Message['role']; content: string; contextFileIds?: string[] }) {
       const role = input.role === 'assistant' || input.role === 'system' ? input.role : 'user';
       const previousMessages = store.listMessages(task.id);
       const firstUserMessage = role === 'user' && previousMessages.every((message) => message.role !== 'user');
@@ -67,6 +69,7 @@ export function createMessageService(
         taskId: activeTask.id,
         role,
         content: input.content,
+        contextFileIds: input.contextFileIds,
       });
       stream.broadcast(activeTask.id, { type: 'message.created', data: message });
 
@@ -74,11 +77,21 @@ export function createMessageService(
       if (message.role === 'user') {
         const client = getOpenClawClient();
         const agent = activeTask.agentId ? store.getAgent(activeTask.agentId) : store.getAgentByUserId(activeTask.userId);
+        const contextText = input.contextFileIds?.length && fileService
+          ? fileService.buildContextText(activeTask.userId, input.contextFileIds)
+          : '';
+        const runtimeContent = contextText
+          ? `${message.content}\n\n---\n以下文件已加入本轮上下文：\n${contextText}`
+          : message.content;
+
+        if (input.contextFileIds?.length && fileService) {
+          fileService.recordUsedInChat(activeTask.userId, input.contextFileIds, activeTask.id);
+        }
 
         if (client.isConnected()) {
           const isFollowup = !!agent?.gatewayAgentId;
           runAgent(activeTask, () =>
-            runOpenClawSession(activeTask, message.content, store, stream, isFollowup),
+            runOpenClawSession(activeTask, runtimeContent, store, stream, isFollowup),
           );
         } else {
           // OpenClaw 未连接，先触发连接再执行
@@ -86,7 +99,7 @@ export function createMessageService(
             await client.connect();
             const freshAgent = activeTask.agentId ? store.getAgent(activeTask.agentId) : store.getAgentByUserId(activeTask.userId);
             const isFollowup = !!freshAgent?.gatewayAgentId;
-            await runOpenClawSession(activeTask, message.content, store, stream, isFollowup);
+            await runOpenClawSession(activeTask, runtimeContent, store, stream, isFollowup);
           });
         }
       }
