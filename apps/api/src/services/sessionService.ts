@@ -71,6 +71,44 @@ function normalizeRole(role: string | undefined): SessionMessage['role'] {
   return 'system';
 }
 
+function isToolOutputLine(line: string) {
+  const value = line.trim();
+  if (!value) return true;
+  return (
+    /^\/bin\/(?:bash|sh):\s/i.test(value)
+    || /^\/usr\/bin\/python\d*(?::|\s*$)/i.test(value)
+    || /^sudo:\s/i.test(value)
+    || /^Successfully wrote \d+ bytes to\s+/i.test(value)
+    || /^-[rwx-]{9}\s+\d+\s+\S+\s+\S+\s+\S+\s+\w{3}\s+\d{1,2}\s+\d{1,2}:\d{2}\s+/i.test(value)
+    || /\bcommand not found\b/i.test(value)
+    || /\bNo module named\b/i.test(value)
+  );
+}
+
+function stripToolOutputPrelude(text: string) {
+  const lines = text.split(/\r?\n/);
+  let index = 0;
+  while (index < lines.length && isToolOutputLine(lines[index] ?? '')) {
+    index += 1;
+  }
+  if (index === 0) return text.trim();
+  return lines.slice(index).join('\n').trim();
+}
+
+function normalizeAssistantSessionText(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return '';
+
+  const withoutPrelude = stripToolOutputPrelude(trimmed);
+  if (!withoutPrelude) return '';
+
+  const meaningfulLines = withoutPrelude.split(/\r?\n/).filter((line) => line.trim());
+  if (meaningfulLines.length > 0 && meaningfulLines.every(isToolOutputLine)) {
+    return '';
+  }
+  return withoutPrelude;
+}
+
 function parseJsonlLine(line: string, index: number): SessionMessage | null {
   if (!line.trim()) return null;
 
@@ -88,12 +126,16 @@ function parseJsonlLine(line: string, index: number): SessionMessage | null {
   if (!role || !content) return null;
 
   const text = extractTextContent(content);
-  if (!text.trim()) return null;
+  const normalizedRole = normalizeRole(role);
+  const visibleText = normalizedRole === 'assistant'
+    ? normalizeAssistantSessionText(text)
+    : text.trim();
+  if (!visibleText) return null;
 
   return {
     id: raw.id || `session-msg-${index}`,
-    role: normalizeRole(role),
-    content: text,
+    role: normalizedRole,
+    content: visibleText,
     createdAt: raw.timestamp || new Date().toISOString(),
   };
 }
