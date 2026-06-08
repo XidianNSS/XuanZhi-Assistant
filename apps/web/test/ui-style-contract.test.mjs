@@ -370,7 +370,7 @@ test('file workspace renders the screenshot-style file space', async () => {
 
   assert.match(filePage, /file-space-page/, 'expected a dedicated file page surface');
   assert.match(filePage, /搜索文件名/, 'expected the top file search input');
-  assert.match(filePage, /全部 Agent/, 'expected the agent filter control');
+  assert.match(filePage, /全部Agent/, 'expected the agent filter control');
   assert.match(filePage, /\{visibleFiles\.length\} 个文件/, 'expected the dynamic file count');
   assert.match(filePage, /function groupTitle\(file: FileAsset\)/, 'expected grouped file source titles');
   assert.match(filePage, /<FileTypeMark file=\{file\}/, 'expected file rows to render typed file marks');

@@ -28,34 +28,27 @@ type ViewMode = 'list' | 'grid';
 type AgentFilter = 'all' | 'current';
 
 const categoryLabels: Record<FileAssetCategory | 'all', string> = {
-  all: '全部',
+  all: '全部类型',
   code: '代码',
-  data: '数据',
+  data: '代码',
   documents: '文档',
   images: '图片',
   others: '其他',
-  presentations: '演示',
-  reports: '报告',
+  presentations: 'PPT',
+  reports: 'PDF',
   spreadsheets: '表格',
 };
 
-const categoryOrder: Array<FileAssetCategory | 'all'> = [
-  'all',
-  'documents',
-  'spreadsheets',
-  'images',
-  'presentations',
-  'reports',
-  'code',
-  'others',
-];
-
 const sourceLabels: Record<FileAssetSource, string> = {
-  assistant_generated: '生成',
-  tool_output: '工具',
-  user_uploaded: '上传',
-  workspace_imported: '工作区',
+  assistant_generated: 'Agent',
+  tool_output: 'Agent',
+  user_uploaded: '本地',
+  workspace_imported: 'Agent',
 };
+
+function isAgentFile(file: FileAsset) {
+  return file.source !== 'user_uploaded';
+}
 
 const categoryIcons: Record<FileAssetCategory, ReactNode> = {
   code: <Icon name="file-search" />,
@@ -77,13 +70,20 @@ function formatSize(bytes: number) {
 function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString('zh-CN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return date.toLocaleDateString('zh-CN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
 }
 
 function formatClock(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  return date.toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function extensionLabel(file: FileAsset) {
@@ -105,11 +105,6 @@ function latestByVersionGroup(files: FileAsset[]) {
 function groupTitle(file: FileAsset) {
   if (!file.taskId) return '未关联任务';
   return `任务 ${file.taskId.replace(/^task_/, '').slice(0, 8)}`;
-}
-
-function matchesCategory(file: FileAsset, category: FileAssetCategory | 'all') {
-  if (category === 'all') return true;
-  return file.category === category || qclawFileCategory(file) === category;
 }
 
 function FileTypeMark({ file }: { file: FileAsset }) {
@@ -137,11 +132,9 @@ export function FileSpacePage({
   files,
   folders,
   loading = false,
-  onCategoryChange,
   onFileChanged,
   onFileCreated,
   onOpenTask,
-  onRefresh,
   onUseFileAsContext,
 }: FileSpacePageProps) {
   const [search, setSearch] = useState('');
@@ -153,14 +146,14 @@ export function FileSpacePage({
   const [actionFileId, setActionFileId] = useState<string>();
   const [pendingClearFile, setPendingClearFile] = useState<FileAsset>();
   const [clearLocalFile, setClearLocalFile] = useState(false);
-  const agentFilterLabel = agentFilter === 'all' ? '全部 Agent' : '当前 Agent';
+  const agentFilterLabel = agentFilter === 'all' ? '全部Agent' : '当前Agent';
 
   const visibleFiles = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     return latestByVersionGroup(files)
       .filter((file) => !file.deletedAt)
-      .filter((file) => (agentFilter === 'all' ? true : file.agentId === activeAgentId))
-      .filter((file) => matchesCategory(file, activeCategory))
+      .filter((file) => (agentFilter === 'all' ? true : isAgentFile(file)))
+      .filter((file) => (activeCategory === 'all' ? true : qclawFileCategory(file) === activeCategory))
       .filter((file) => {
         if (!keyword) return true;
         return `${file.name} ${file.title} ${file.summary ?? ''}`.toLowerCase().includes(keyword);
@@ -221,20 +214,16 @@ export function FileSpacePage({
   };
 
   return (
-    <section
-      className="file-space-page"
-      aria-label="文件空间"
-      onClick={() => {
-        setAgentMenuOpen(false);
-        setActionFileId(undefined);
-      }}
-    >
+    <section className="file-space-page" aria-label="文件空间" onClick={() => {
+      setAgentMenuOpen(false);
+      setActionFileId(undefined);
+    }}>
       <header className="file-toolbar">
         <Input
           className="file-search-input"
           prefix={<Icon name="search" />}
-          placeholder="搜索文件名、标题或摘要"
-          aria-label="搜索文件"
+          placeholder="搜索文件名"
+          aria-label="搜索文件名"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
@@ -265,7 +254,7 @@ export function FileSpacePage({
                   }}
                 >
                   <Icon name="user" />
-                  <span>全部 Agent</span>
+                  <span>全部Agent</span>
                   {agentFilter === 'all' ? <Icon name="check" /> : <span />}
                 </button>
                 <button
@@ -277,15 +266,12 @@ export function FileSpacePage({
                   }}
                 >
                   <span className="file-source-dot" />
-                  <span>当前 Agent</span>
+                  <span>当前Agent</span>
                   {agentFilter === 'current' ? <Icon name="check" /> : <span />}
                 </button>
               </div>
             ) : null}
           </div>
-          <Button type="text" icon={<Icon name="cloud" />} onClick={onRefresh}>
-            同步
-          </Button>
           <div className="file-view-toggle" aria-label="文件视图切换">
             <button
               className={viewMode === 'list' ? 'is-active' : ''}
@@ -298,7 +284,7 @@ export function FileSpacePage({
             <button
               className={viewMode === 'grid' ? 'is-active' : ''}
               type="button"
-              aria-label="网格视图"
+              aria-label="宫格视图"
               onClick={() => setViewMode('grid')}
             >
               <Icon name="grid" />
@@ -306,20 +292,6 @@ export function FileSpacePage({
           </div>
         </div>
       </header>
-
-      <nav className="file-category-tabs" aria-label="文件分类">
-        {categoryOrder.map((category) => (
-          <button
-            className={activeCategory === category ? 'is-active' : ''}
-            key={category}
-            type="button"
-            onClick={() => onCategoryChange(category)}
-          >
-            {category === 'all' ? <Icon name="folder" /> : categoryIcons[category]}
-            <span>{categoryLabels[category]}</span>
-          </button>
-        ))}
-      </nav>
 
       <div className="file-content-header">
         <span>{loading ? '正在同步文件索引' : categoryLabels[activeCategory]}</span>
@@ -346,7 +318,7 @@ export function FileSpacePage({
                     ));
                   }}
                 >
-                  <span className="file-qclaw-caret" aria-hidden="true">{collapsed ? '›' : '⌄'}</span>
+                  <span className="file-qclaw-caret" aria-hidden="true">{collapsed ? '›' : '⌃'}</span>
                   <Icon name="message" />
                   <Text strong>{groupName}</Text>
                 </button>
@@ -395,20 +367,13 @@ export function FileSpacePage({
                                 <Icon name="folder" />
                                 打开文件位置
                               </button>
-                              <button type="button" onClick={() => void copyText(fileApi.getFileDownloadUrl(file.id))}>
+                              <button type="button" onClick={() => copyText(fileApi.getFileDownloadUrl(file.id))}>
                                 <Icon name="copy" />
-                                复制下载链接
+                                复制文件
                               </button>
                               <button type="button" onClick={() => window.open(fileApi.getFileDownloadUrl(file.id), '_blank')}>
                                 <Icon name="share" />
                                 下载文件
-                              </button>
-                              <button type="button" onClick={() => {
-                                onUseFileAsContext(file);
-                                setActionFileId(undefined);
-                              }}>
-                                <Icon name="paperclip" />
-                                作为上下文
                               </button>
                               <span className="file-row-menu-separator" />
                               <button type="button" onClick={() => {
@@ -502,7 +467,7 @@ export function FileSpacePage({
         width={420}
       >
         <div className="file-clear-confirm-copy">
-          <p>本地文件会保留，仅删除云端文件资产记录。</p>
+          <p>本地文件将保留，仅删除云端副本</p>
           <label className="file-clear-confirm-checkbox">
             <input
               type="checkbox"
