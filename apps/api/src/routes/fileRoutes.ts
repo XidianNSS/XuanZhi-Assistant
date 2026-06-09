@@ -683,13 +683,16 @@ export function registerFileRoutes(app: FastifyInstance, dependencies: AppDepend
     if (!auth) return;
 
     const { fileId } = request.params as { fileId: string };
+    const query = request.query as { inline?: string };
     const result = dependencies.services.files.getFile(auth.user.id, fileId);
     if (!result || !existsSync(result.absolutePath)) {
       return reply.status(404).send({ message: '文件不存在' });
     }
 
+    const disposition = query.inline === '1' ? 'inline' : 'attachment';
     reply.header('content-type', result.file.mimeType);
-    reply.header('content-disposition', `attachment; filename="${encodeURIComponent(result.file.name)}"`);
+    reply.header('content-disposition', contentDisposition(disposition, result.file.name));
+    reply.header('x-content-type-options', 'nosniff');
     dependencies.services.files.recordDownload(auth.user.id, fileId);
     return reply.send(createReadStream(result.absolutePath));
   });

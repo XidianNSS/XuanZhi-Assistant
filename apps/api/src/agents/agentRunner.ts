@@ -1,7 +1,11 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { basename, join, relative } from 'node:path';
+
 import type { Agent, AgentEventStatus, MessagePlanStep, MessageStatus, Task } from '@xuanzhi/shared/protocol';
 
 import type { MemoryStore } from '../repositories/memoryStore.js';
 import type { StreamHub } from '../realtime/streamHub.js';
+import type { FileAssetService } from '../services/fileAssetService.js';
 import { getOpenClawClient } from './openclawClient.js';
 import { syncAgentProfileFiles } from './profileFiles.js';
 import { createXuanzhiWorkspacePath } from './workspace.js';
@@ -47,6 +51,22 @@ type AgentHandle = {
 };
 
 const ASSISTANT_RESPONSE_TIMEOUT = 120_000;
+const GENERATED_FILE_SCAN_LIMIT = 20;
+const GENERATED_FILE_MAX_BYTES = 25 * 1024 * 1024;
+const GENERATED_FILE_MTIME_SKEW_MS = 5_000;
+const GENERATED_FILE_SKIP_DIRS = new Set(['.git', '.openclaw', '.xuanzhi', 'node_modules']);
+const GENERATED_FILE_EXTENSIONS = new Set([
+  'csv', 'diff', 'doc', 'docx', 'gif', 'html', 'jpeg', 'jpg', 'json', 'jsonl',
+  'md', 'pdf', 'png', 'ppt', 'pptx', 'py', 'sql', 'svg', 'ts', 'tsx', 'txt',
+  'webp', 'xls', 'xlsx', 'zip',
+]);
+
+type WorkspaceFileCandidate = {
+  absolutePath: string;
+  relativePath: string;
+  sizeBytes: number;
+  mtimeMs: number;
+};
 
 function eventSessionKey(payload: { sessionKey?: string; session_key?: string; key?: string }) {
   return payload.sessionKey ?? payload.session_key ?? payload.key;
@@ -122,6 +142,137 @@ function extractChatText(payload: ChatEventPayload): string | null {
 
 function getAgentDisplayName(agent: AgentHandle) {
   return agent.profile?.agentName?.trim() || agent.name.trim() || agent.id;
+}
+
+function listUpdatedWorkspaceFiles(
+  workspace: string,
+  sinceMs: number,
+  limit = GENERATED_FILE_SCAN_LIMIT,
+): WorkspaceFileCandidate[] {
+  const cutoff = sinceMs - GENERATED_FILE_MTIME_SKEW_MS;
+  const candidates: WorkspaceFileCandidate[] = [];
+
+  function visit(directory: string) {
+    if (candidates.length >= limit) return;
+
+    let entries;
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (candidates.length >= limit) return;
+      if (entry.name.startsWith('.') || GENERATED_FILE_SKIP_DIRS.has(entry.name)) continue;
+
+      const absolutePath = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolutePath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+
+      try {
+        const stat = statSync(absolutePath);
+        if (stat.size <= 0 || stat.size > GENERATED_FILE_MAX_BYTES || stat.mtimeMs < cutoff) continue;
+        candidates.push({
+          absolutePath,
+          relativePath: relative(workspace, absolutePath),
+          sizeBytes: stat.size,
+          mtimeMs: stat.mtimeMs,
+        });
+      } catch {
+        // File may have disappeared while the agent was still writing.
+      }
+    }
+  }
+
+  visit(workspace);
+  return candidates
+    .sort((left, right) => right.mtimeMs - left.mtimeMs)
+    .slice(0, limit);
+}
+
+function extractMentionedFilePaths(text: string | null | undefined) {
+  if (!text) return [];
+
+  const paths = new Set<string>();
+  const pattern = /[`"“”']?((?:[\p{L}\p{N}._ -]+\/)*[\p{L}\p{N}._ -]+\.([a-zA-Z0-9]{1,8}))[`"“”']?/gu;
+  for (const match of text.matchAll(pattern)) {
+    const path = match[1]?.trim();
+    const extension = match[2]?.toLowerCase();
+    if (!path || !extension || !GENERATED_FILE_EXTENSIONS.has(extension)) continue;
+    if (path.includes('://') || path.startsWith('/') || path.startsWith('..')) continue;
+    paths.add(path);
+  }
+  return [...paths].slice(0, GENERATED_FILE_SCAN_LIMIT);
+}
+
+function getMentionedWorkspaceFiles(workspace: string, responseText: string | null | undefined) {
+  const candidates: WorkspaceFileCandidate[] = [];
+  for (const mentionedPath of extractMentionedFilePaths(responseText)) {
+    const absolutePath = join(workspace, mentionedPath);
+    try {
+      const stat = statSync(absolutePath);
+      if (!stat.isFile() || stat.size <= 0 || stat.size > GENERATED_FILE_MAX_BYTES) continue;
+      candidates.push({
+        absolutePath,
+        relativePath: mentionedPath,
+        sizeBytes: stat.size,
+        mtimeMs: stat.mtimeMs,
+      });
+    } catch {
+      // The model may mention conceptual filenames that were not actually written.
+    }
+  }
+  return candidates;
+}
+
+function importGeneratedWorkspaceFiles(
+  task: Task,
+  agent: AgentHandle,
+  fileService: FileAssetService | undefined,
+  stream: StreamHub,
+  sinceMs: number,
+  responseText?: string | null,
+) {
+  if (!fileService || !agent.workspace) return [];
+
+  const existingForTask = fileService.listFiles(task.userId, { taskId: task.id, includeAllVersions: true });
+  const existingNames = new Set(existingForTask.map((file) => file.title || file.name));
+  const imported = [];
+  const candidatesByPath = new Map<string, WorkspaceFileCandidate>();
+
+  for (const candidate of getMentionedWorkspaceFiles(agent.workspace, responseText)) {
+    candidatesByPath.set(candidate.relativePath, candidate);
+  }
+  for (const candidate of listUpdatedWorkspaceFiles(agent.workspace, sinceMs)) {
+    candidatesByPath.set(candidate.relativePath, candidate);
+  }
+
+  for (const candidate of candidatesByPath.values()) {
+    const fileName = basename(candidate.relativePath);
+    if (existingNames.has(fileName)) continue;
+
+    try {
+      const file = fileService.createFileFromArtifact({
+        task,
+        title: fileName,
+        fileName,
+        content: readFileSync(candidate.absolutePath),
+        source: 'workspace_imported',
+        summary: `OpenClaw workspace 文件: ${candidate.relativePath}`,
+      });
+      imported.push(file);
+      existingNames.add(fileName);
+      stream.broadcast(task.id, { type: 'file.asset.created', data: file });
+    } catch (error) {
+      console.warn('[OpenClawAgent] workspace file import skipped:', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return imported;
 }
 
 // ── Agent helpers factory ──
@@ -569,6 +720,7 @@ export async function runOpenClawSession(
   content: string,
   store: MemoryStore,
   stream: StreamHub,
+  fileService?: FileAssetService,
   isFollowup = false,
 ): Promise<void> {
   const client = getOpenClawClient();
@@ -591,6 +743,7 @@ export async function runOpenClawSession(
   try {
     helpers.publishTaskStatus('running');
     store.updateAgentStatus(agent.id, 'running');
+    const runStartedAt = Date.now();
 
     // 1. Ensure Gateway agent exists
     const gatewayAgentId = await ensureGatewayAgent(client, agent, store, helpers);
@@ -639,6 +792,15 @@ export async function runOpenClawSession(
 
     if (responseText) {
       helpers.publishEvent('agent.answer.created', 'Agent 已生成回复', 'success');
+    }
+
+    const importedFiles = importGeneratedWorkspaceFiles(task, agent, fileService, stream, runStartedAt, responseText);
+    if (importedFiles.length > 0) {
+      helpers.publishEvent(
+        'agent.files.imported',
+        `已同步 ${importedFiles.length} 个文件到文件空间`,
+        'success',
+      );
     }
 
     helpers.publishTaskStatus('completed');

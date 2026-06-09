@@ -91,7 +91,7 @@ export function createMessageService(
         if (client.isConnected()) {
           const isFollowup = !!agent?.gatewayAgentId;
           runAgent(activeTask, () =>
-            runOpenClawSession(activeTask, runtimeContent, store, stream, isFollowup),
+            runOpenClawSession(activeTask, runtimeContent, store, stream, fileService, isFollowup),
           );
         } else {
           // OpenClaw 未连接，先触发连接再执行
@@ -99,7 +99,7 @@ export function createMessageService(
             await client.connect();
             const freshAgent = activeTask.agentId ? store.getAgent(activeTask.agentId) : store.getAgentByUserId(activeTask.userId);
             const isFollowup = !!freshAgent?.gatewayAgentId;
-            await runOpenClawSession(activeTask, runtimeContent, store, stream, isFollowup);
+            await runOpenClawSession(activeTask, runtimeContent, store, stream, fileService, isFollowup);
           });
         }
       }
