@@ -55,6 +55,14 @@ const GENERATED_FILE_SCAN_LIMIT = 20;
 const GENERATED_FILE_MAX_BYTES = 25 * 1024 * 1024;
 const GENERATED_FILE_MTIME_SKEW_MS = 5_000;
 const GENERATED_FILE_SKIP_DIRS = new Set(['.git', '.openclaw', '.xuanzhi', 'node_modules']);
+const GENERATED_FILE_SKIP_NAMES = new Set([
+  'AGENTS.md',
+  'HEARTBEAT.md',
+  'IDENTITY.md',
+  'README.md',
+  'USER.md',
+  'xuanzhi-profile.json',
+]);
 const GENERATED_FILE_EXTENSIONS = new Set([
   'csv', 'diff', 'doc', 'docx', 'gif', 'html', 'jpeg', 'jpg', 'json', 'jsonl',
   'md', 'pdf', 'png', 'ppt', 'pptx', 'py', 'sql', 'svg', 'ts', 'tsx', 'txt',
@@ -67,6 +75,8 @@ type WorkspaceFileCandidate = {
   sizeBytes: number;
   mtimeMs: number;
 };
+
+type WorkspaceFileSnapshot = Map<string, { sizeBytes: number; mtimeMs: number }>;
 
 function eventSessionKey(payload: { sessionKey?: string; session_key?: string; key?: string }) {
   return payload.sessionKey ?? payload.session_key ?? payload.key;
@@ -144,6 +154,11 @@ function getAgentDisplayName(agent: AgentHandle) {
   return agent.profile?.agentName?.trim() || agent.name.trim() || agent.id;
 }
 
+function isImportableWorkspaceFile(relativePath: string) {
+  const fileName = basename(relativePath);
+  return !GENERATED_FILE_SKIP_NAMES.has(fileName);
+}
+
 function listUpdatedWorkspaceFiles(
   workspace: string,
   sinceMs: number,
@@ -190,8 +205,52 @@ function listUpdatedWorkspaceFiles(
 
   visit(workspace);
   return candidates
+    .filter((candidate) => isImportableWorkspaceFile(candidate.relativePath))
     .sort((left, right) => right.mtimeMs - left.mtimeMs)
     .slice(0, limit);
+}
+
+function snapshotWorkspaceFiles(workspace: string | undefined): WorkspaceFileSnapshot {
+  const snapshot: WorkspaceFileSnapshot = new Map();
+  if (!workspace) return snapshot;
+  const workspaceRoot = workspace;
+
+  function visit(directory: string) {
+    let entries;
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || GENERATED_FILE_SKIP_DIRS.has(entry.name)) continue;
+      const absolutePath = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolutePath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+
+      try {
+        const stat = statSync(absolutePath);
+        const relativePath = relative(workspaceRoot, absolutePath);
+        if (!isImportableWorkspaceFile(relativePath)) continue;
+        snapshot.set(relativePath, { sizeBytes: stat.size, mtimeMs: stat.mtimeMs });
+      } catch {
+        // Ignore files that disappear during the snapshot.
+      }
+    }
+  }
+
+  visit(workspaceRoot);
+  return snapshot;
+}
+
+function hasChangedSinceSnapshot(candidate: WorkspaceFileCandidate, snapshot: WorkspaceFileSnapshot) {
+  const previous = snapshot.get(candidate.relativePath);
+  if (!previous) return true;
+  return previous.sizeBytes !== candidate.sizeBytes || previous.mtimeMs !== candidate.mtimeMs;
 }
 
 function extractMentionedFilePaths(text: string | null | undefined) {
@@ -204,6 +263,7 @@ function extractMentionedFilePaths(text: string | null | undefined) {
     const extension = match[2]?.toLowerCase();
     if (!path || !extension || !GENERATED_FILE_EXTENSIONS.has(extension)) continue;
     if (path.includes('://') || path.startsWith('/') || path.startsWith('..')) continue;
+    if (!isImportableWorkspaceFile(path)) continue;
     paths.add(path);
   }
   return [...paths].slice(0, GENERATED_FILE_SCAN_LIMIT);
@@ -235,6 +295,7 @@ function importGeneratedWorkspaceFiles(
   fileService: FileAssetService | undefined,
   stream: StreamHub,
   sinceMs: number,
+  baseline: WorkspaceFileSnapshot,
   responseText?: string | null,
 ) {
   if (!fileService || !agent.workspace) return [];
@@ -245,9 +306,11 @@ function importGeneratedWorkspaceFiles(
   const candidatesByPath = new Map<string, WorkspaceFileCandidate>();
 
   for (const candidate of getMentionedWorkspaceFiles(agent.workspace, responseText)) {
+    if (!hasChangedSinceSnapshot(candidate, baseline)) continue;
     candidatesByPath.set(candidate.relativePath, candidate);
   }
   for (const candidate of listUpdatedWorkspaceFiles(agent.workspace, sinceMs)) {
+    if (!hasChangedSinceSnapshot(candidate, baseline)) continue;
     candidatesByPath.set(candidate.relativePath, candidate);
   }
 
@@ -750,6 +813,7 @@ export async function runOpenClawSession(
 
     // 2. Create/reuse main + task session on the Gateway
     const session = await ensureSession(client, gatewayAgentId, store, agent, task);
+    const workspaceBaseline = snapshotWorkspaceFiles(agent.workspace);
 
     // 3. Publish dispatch event
     if (isFollowup) {
@@ -794,7 +858,15 @@ export async function runOpenClawSession(
       helpers.publishEvent('agent.answer.created', 'Agent 已生成回复', 'success');
     }
 
-    const importedFiles = importGeneratedWorkspaceFiles(task, agent, fileService, stream, runStartedAt, responseText);
+    const importedFiles = importGeneratedWorkspaceFiles(
+      task,
+      agent,
+      fileService,
+      stream,
+      runStartedAt,
+      workspaceBaseline,
+      responseText,
+    );
     if (importedFiles.length > 0) {
       helpers.publishEvent(
         'agent.files.imported',
